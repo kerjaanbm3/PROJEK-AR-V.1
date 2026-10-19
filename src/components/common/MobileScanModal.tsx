@@ -47,7 +47,8 @@ export default function MobileScanModal({
   const [useCustomUrl, setUseCustomUrl] = useState(false);
   const [qrCodeDataUrl, setQrCodeDataUrl] = useState<string>('');
   const [copiedLink, setCopiedLink] = useState(false);
-  const [showHelp, setShowHelp] = useState(false);
+  const [copiedFlagOrigin, setCopiedFlagOrigin] = useState(false);
+  const [showHelp, setShowHelp] = useState(true);
   const [fullScreenTarget, setFullScreenTarget] = useState(false);
 
   // Fetch host machine LAN IP
@@ -77,20 +78,19 @@ export default function MobileScanModal({
 
   // Compute final URL for mobile phone
   const port = typeof window !== 'undefined' && window.location.port ? window.location.port : '3000';
-  const protocol = typeof window !== 'undefined' ? window.location.protocol : 'http:';
+  const currentProtocol = typeof window !== 'undefined' ? window.location.protocol : 'http:';
 
   let mobileViewerUrl = '';
   if (useCustomUrl && customUrl.trim()) {
     const trimmed = customUrl.trim();
-    mobileViewerUrl = trimmed.endsWith('/')
-      ? `${trimmed}view/${slug}`
-      : `${trimmed}/view/${slug}`;
+    const clean = trimmed.endsWith('/') ? trimmed.slice(0, -1) : trimmed;
+    mobileViewerUrl = `${clean}/view/${slug}?ar=1`;
   } else if (selectedIp === 'localhost') {
     mobileViewerUrl = typeof window !== 'undefined'
-      ? `${window.location.origin}/view/${slug}`
-      : `http://localhost:${port}/view/${slug}`;
+      ? `${window.location.origin}/view/${slug}?ar=1`
+      : `${currentProtocol}//localhost:${port}/view/${slug}?ar=1`;
   } else {
-    mobileViewerUrl = `http://${selectedIp}:${port}/view/${slug}`;
+    mobileViewerUrl = `${currentProtocol}//${selectedIp}:${port}/view/${slug}?ar=1`;
   }
 
   // Generate QR code whenever mobileViewerUrl changes
@@ -388,17 +388,48 @@ export default function MobileScanModal({
               {showHelp && (
                 <div style={{ padding: '0.75rem', borderTop: '1px solid var(--border-subtle)', fontSize: '0.75rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
                   <p style={{ margin: '0 0 0.5rem 0' }}>
-                    Browser HP (Chrome/Safari) membatasi kamera hanya untuk link <strong>HTTPS</strong> atau <strong>localhost</strong>.
+                    Browser HP (Chrome/Safari) membatasi akses kamera hanya untuk link <strong>HTTPS</strong> atau <strong>localhost</strong>.
                   </p>
-                  <p style={{ margin: '0 0 0.35rem 0', fontWeight: 600, color: '#ffffff' }}>
-                    Cara Aktifkan di Chrome Android:
+                  <p style={{ margin: '0 0 0.35rem 0', fontWeight: 700, color: '#38bdf8' }}>
+                    📱 Cara Buka Akses Kamera di Chrome Android (1 Menit):
                   </p>
-                  <ol style={{ paddingLeft: '1.25rem', margin: 0 }}>
-                    <li>Buka <code>chrome://flags</code> di Chrome HP.</li>
+                  <ol style={{ paddingLeft: '1.25rem', margin: '0 0 0.65rem 0' }}>
+                    <li>Buka tab baru di browser Chrome HP, ketik di address bar: <code>chrome://flags</code></li>
                     <li>Cari: <code>Insecure origins treated as secure</code></li>
-                    <li>Ketik: <code>http://{localIp}:{port}</code></li>
-                    <li>Ubah jadi <strong>Enabled</strong>, lalu klik <strong>Relaunch</strong>.</li>
+                    <li>Ubah dropdown jadi <strong>Enabled</strong>, lalu masukkan alamat di bawah ini:</li>
                   </ol>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', marginBottom: '0.5rem' }}>
+                    <input
+                      readOnly
+                      value={`http://${selectedIp !== 'localhost' ? selectedIp : localIp}:${port}`}
+                      style={{
+                        flex: 1,
+                        background: 'rgba(0,0,0,0.5)',
+                        border: '1px solid var(--border-subtle)',
+                        borderRadius: 'var(--radius-sm)',
+                        padding: '0.3rem 0.5rem',
+                        color: 'var(--accent-light)',
+                        fontSize: '0.71875rem',
+                        fontFamily: 'monospace'
+                      }}
+                    />
+                    <button
+                      onClick={() => {
+                        const targetOrigin = `http://${selectedIp !== 'localhost' ? selectedIp : localIp}:${port}`;
+                        navigator.clipboard?.writeText(targetOrigin);
+                        setCopiedFlagOrigin(true);
+                        setTimeout(() => setCopiedFlagOrigin(false), 2000);
+                      }}
+                      className="btn btn-secondary"
+                      style={{ fontSize: '0.6875rem', padding: '0.3rem 0.6rem', height: '28px' }}
+                    >
+                      {copiedFlagOrigin ? <Check size={12} color="#34d399" /> : <Copy size={12} />}
+                      <span>{copiedFlagOrigin ? 'Tersalin' : 'Salin'}</span>
+                    </button>
+                  </div>
+                  <div style={{ fontSize: '0.6875rem', color: 'var(--text-secondary)' }}>
+                    4. Tekan tombol biru <strong>Relaunch</strong> di kanan bawah Chrome, lalu scan ulang QR di atas.
+                  </div>
                 </div>
               )}
             </div>

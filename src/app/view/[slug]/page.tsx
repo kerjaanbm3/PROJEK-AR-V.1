@@ -1328,6 +1328,58 @@ export default function PublicViewerPage() {
                 {mindarError || cameraError}
               </div>
 
+              {((mindarError && mindarError.includes('HTTP biasa')) || (cameraError && cameraError.includes('HTTP'))) && (
+                <div style={{
+                  background: 'rgba(15, 23, 42, 0.85)',
+                  border: '1px solid rgba(56, 189, 248, 0.35)',
+                  borderRadius: 'var(--radius-md)',
+                  padding: '0.65rem 0.75rem',
+                  marginBottom: '0.75rem',
+                  fontSize: '0.71875rem'
+                }}>
+                  <div style={{ fontWeight: 700, color: '#38bdf8', marginBottom: '0.35rem', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                    <Info size={13} /> Cara Buka Izin Kamera di Chrome HP (1 Menit):
+                  </div>
+                  <ol style={{ paddingLeft: '1.15rem', margin: '0 0 0.5rem 0', color: 'rgba(255,255,255,0.85)', lineHeight: 1.45 }}>
+                    <li>Buka tab baru di browser HP, ketik di address bar: <code>chrome://flags</code></li>
+                    <li>Cari: <code>Insecure origins treated as secure</code></li>
+                    <li>Ubah dropdown jadi <strong>Enabled</strong> dan masukkan alamat ini di bawahnya:</li>
+                  </ol>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                    <input
+                      readOnly
+                      value={typeof window !== 'undefined' ? window.location.origin : 'http://192.168.1.4:3000'}
+                      style={{
+                        flex: 1,
+                        background: 'rgba(0,0,0,0.5)',
+                        border: '1px solid var(--border-subtle)',
+                        borderRadius: 'var(--radius-sm)',
+                        padding: '0.25rem 0.5rem',
+                        color: 'var(--accent-light)',
+                        fontSize: '0.6875rem',
+                        fontFamily: 'monospace'
+                      }}
+                    />
+                    <button
+                      onClick={() => {
+                        const url = typeof window !== 'undefined' ? window.location.origin : 'http://192.168.1.4:3000';
+                        navigator.clipboard?.writeText(url);
+                        setCopiedLink(true);
+                        setTimeout(() => setCopiedLink(false), 2000);
+                      }}
+                      className="btn btn-secondary"
+                      style={{ fontSize: '0.6875rem', padding: '0.25rem 0.5rem', height: '26px' }}
+                    >
+                      {copiedLink ? <Check size={11} color="#34d399" /> : <Copy size={11} />}
+                      <span>{copiedLink ? 'Tersalin' : 'Salin'}</span>
+                    </button>
+                  </div>
+                  <div style={{ fontSize: '0.65625rem', color: 'var(--text-secondary)', marginTop: '0.35rem' }}>
+                    4. Tekan tombol biru <strong>Relaunch</strong> di pojok kanan bawah browser, lalu buka lagi halaman ini.
+                  </div>
+                </div>
+              )}
+
               {/* Action buttons */}
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem' }}>
                 <button
