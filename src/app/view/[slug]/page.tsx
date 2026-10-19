@@ -36,7 +36,8 @@ import {
   ChevronRight,
   Volume2,
   Video,
-  Smartphone
+  Smartphone,
+  AlertTriangle
 } from 'lucide-react';
 import QRCode from 'qrcode';
 import MobileScanModal from '@/components/common/MobileScanModal';
@@ -614,8 +615,42 @@ export default function PublicViewerPage() {
     if (!targetMindUrl || !targetMindUrl.endsWith('.mind')) {
       targetMindUrl = '/markers/card.mind';
     }
+    if (typeof window !== 'undefined' && !targetMindUrl.startsWith('http')) {
+      targetMindUrl = `${window.location.origin}${targetMindUrl.startsWith('/') ? '' : '/'}${targetMindUrl}`;
+    }
 
     try {
+      // Ensure mediaDevices is supported in current environment
+      if (typeof navigator === 'undefined' || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        throw new Error('Akses kamera dibatasi browser pada tautan HTTP biasa. Silakan buka via HTTPS atau aktifkan Chrome Flags unsafely-treat-insecure-origin-as-secure di ponsel.');
+      }
+
+      // Verify camera availability and permissions beforehand to prevent undefined rejections
+      try {
+        const testStream = await navigator.mediaDevices.getUserMedia({
+          video: true,
+          audio: false
+        });
+        testStream.getTracks().forEach((track) => track.stop());
+      } catch (camErr: any) {
+        if (camErr?.name === 'NotAllowedError' || camErr?.name === 'PermissionDeniedError') {
+          throw new Error('Izin akses kamera diblokir browser. Harap klik ikon gembok pada address bar dan berikan izin kamera.');
+        } else if (camErr?.name === 'NotFoundError' || camErr?.name === 'DevicesNotFoundError') {
+          throw new Error('Tidak ada perangkat webcam atau kamera yang terdeteksi di perangkat ini.');
+        } else {
+          throw new Error(camErr?.message || 'Gagal mengaktifkan kamera perangkat.');
+        }
+      }
+
+      // Ensure container is rendered and active with visible dimensions
+      setViewerMode('AR');
+      setArTrackingType('IMAGE_TRACKING');
+      setAutoRotate(false);
+
+      if (mindarContainerRef.current) {
+        mindarContainerRef.current.style.display = 'block';
+      }
+
       // Use native browser dynamic import to bypass Webpack module bundling and resolve from <script type="importmap">
       const browserImport = new Function('specifier', 'return import(specifier)');
       let MindARThreeModule: any;
@@ -718,14 +753,34 @@ export default function PublicViewerPage() {
       });
 
       setCameraActive(true);
-      setViewerMode('AR');
-      setArTrackingType('IMAGE_TRACKING');
-      setAutoRotate(false);
     } catch (err: any) {
-      console.error('MindAR error:', err);
-      setMindarError(err.message || 'Gagal memuat engine MindAR');
-      // Fallback to Free Touch AR
-      startFreeTouchAR();
+      let errorMsg = 'Gagal mengakses kamera atau memuat engine MindAR.';
+      if (err?.message) {
+        errorMsg = err.message;
+      } else if (typeof err === 'string') {
+        errorMsg = err;
+      } else if (err?.name === 'NotAllowedError' || err?.name === 'PermissionDeniedError') {
+        errorMsg = 'Izin kamera ditolak browser. Izinkan kamera di ikon gembok address bar.';
+      } else if (err?.name === 'NotFoundError' || err?.name === 'DevicesNotFoundError') {
+        errorMsg = 'Tidak ada perangkat kamera / webcam di perangkat ini.';
+      }
+
+      console.error('MindAR error:', errorMsg, err);
+      setMindarError(errorMsg);
+
+      const isFatal = errorMsg.includes('diblokir') || errorMsg.includes('ditolak') || errorMsg.includes('Tidak ada perangkat') || errorMsg.includes('dibatasi browser');
+      if (!isFatal) {
+        // Fallback to Free Touch AR safely
+        try {
+          await startFreeTouchAR();
+        } catch (fallbackErr) {
+          console.error('Fallback AR error:', fallbackErr);
+        }
+      } else {
+        // Stop AR mode and keep 3D orbit active
+        setViewerMode('3D');
+        setAutoRotate(true);
+      }
     } finally {
       setMindarLoading(false);
     }
@@ -746,6 +801,10 @@ export default function PublicViewerPage() {
     }
 
     try {
+      if (typeof navigator === 'undefined' || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        throw new Error('Akses kamera tidak diizinkan pada browser ini (perlu HTTPS atau atur Chrome Flags di HP).');
+      }
+
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
           facingMode: { ideal: 'environment' },
@@ -784,8 +843,11 @@ export default function PublicViewerPage() {
         }
       }
     } catch (err: any) {
-      console.error('Camera access error:', err);
-      setCameraError('Izin akses kamera ditolak atau perangkat tidak memiliki kamera.');
+      const msg = err?.message || (typeof err === 'string' ? err : 'Izin akses kamera ditolak atau perangkat tidak memiliki kamera.');
+      console.error('Camera access error:', msg, err);
+      setCameraError(msg);
+      setViewerMode('3D');
+      setAutoRotate(true);
     }
   };
 
@@ -1205,6 +1267,115 @@ export default function PublicViewerPage() {
           >
             <Move size={13} /> Free Touch
           </button>
+        </div>
+      )}
+
+      {/* Camera / AR Error Banner Toast */}
+      {(mindarError || cameraError) && (
+        <div style={{
+          position: 'absolute',
+          top: 'max(4.25rem, env(safe-area-inset-top, 4.25rem))',
+          left: '50%',
+          transform: 'translateX(-50%)',
+          width: 'min(460px, 92vw)',
+          background: 'rgba(24, 15, 20, 0.95)',
+          backdropFilter: 'blur(16px)',
+          WebkitBackdropFilter: 'blur(16px)',
+          border: '1px solid rgba(239, 68, 68, 0.45)',
+          borderRadius: 'var(--radius-lg)',
+          padding: '0.875rem 1rem',
+          boxShadow: '0 12px 32px rgba(0, 0, 0, 0.65)',
+          zIndex: 45,
+          color: '#ffffff'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.75rem' }}>
+            <div style={{
+              width: '32px',
+              height: '32px',
+              borderRadius: '50%',
+              background: 'rgba(239, 68, 68, 0.15)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              flexShrink: 0,
+              color: '#f87171'
+            }}>
+              <AlertTriangle size={18} />
+            </div>
+            <div style={{ flex: 1 }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem', marginBottom: '0.2rem' }}>
+                <span style={{ fontSize: '0.8125rem', fontWeight: 700, color: '#fca5a5' }}>
+                  Akses Kamera / AR Terkendala
+                </span>
+                <button
+                  onClick={() => {
+                    setMindarError(null);
+                    setCameraError(null);
+                  }}
+                  style={{
+                    background: 'transparent',
+                    border: 'none',
+                    color: 'rgba(255,255,255,0.5)',
+                    cursor: 'pointer',
+                    padding: '0.15rem'
+                  }}
+                  title="Tutup Notifikasi"
+                >
+                  <X size={15} />
+                </button>
+              </div>
+              <div style={{ fontSize: '0.75rem', color: 'rgba(255, 255, 255, 0.85)', lineHeight: 1.35, marginBottom: '0.65rem' }}>
+                {mindarError || cameraError}
+              </div>
+
+              {/* Action buttons */}
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem' }}>
+                <button
+                  onClick={() => {
+                    setMindarError(null);
+                    setCameraError(null);
+                    startARMode('IMAGE_TRACKING');
+                  }}
+                  className="btn btn-primary"
+                  style={{
+                    fontSize: '0.6875rem',
+                    padding: '0.35rem 0.65rem',
+                    borderRadius: 'var(--radius-sm)'
+                  }}
+                >
+                  <RefreshCw size={12} /> Coba Kamera Lagi
+                </button>
+
+                <button
+                  onClick={() => {
+                    setMindarError(null);
+                    setCameraError(null);
+                    stopARMode();
+                  }}
+                  className="btn btn-secondary"
+                  style={{
+                    fontSize: '0.6875rem',
+                    padding: '0.35rem 0.65rem',
+                    borderRadius: 'var(--radius-sm)'
+                  }}
+                >
+                  <RotateCw size={12} /> Mode 3D Orbit
+                </button>
+
+                <button
+                  onClick={() => setShowMobileScanModal(true)}
+                  className="btn btn-secondary"
+                  style={{
+                    fontSize: '0.6875rem',
+                    padding: '0.35rem 0.65rem',
+                    borderRadius: 'var(--radius-sm)'
+                  }}
+                >
+                  <Smartphone size={12} /> Buka di HP
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       )}
 
