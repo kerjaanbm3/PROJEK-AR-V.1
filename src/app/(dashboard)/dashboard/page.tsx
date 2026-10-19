@@ -24,9 +24,11 @@ import {
   Lock,
   LayoutTemplate,
   CreditCard,
-  Package
+  Package,
+  Smartphone
 } from 'lucide-react';
 import QRCode from 'qrcode';
+import MobileScanModal from '@/components/common/MobileScanModal';
 
 interface Project {
   id: string;
@@ -68,6 +70,7 @@ export default function DashboardPage() {
   const [savingEdit, setSavingEdit] = useState(false);
 
   const [shareProject, setShareProject] = useState<Project | null>(null);
+  const [mobileScanProject, setMobileScanProject] = useState<Project | null>(null);
   const [qrDataUrl, setQrDataUrl] = useState<string>('');
   const [copiedLink, setCopiedLink] = useState(false);
   const [copiedEmbed, setCopiedEmbed] = useState(false);
@@ -491,6 +494,15 @@ export default function DashboardPage() {
                     </button>
 
                     <button
+                      onClick={() => setMobileScanProject(project)}
+                      title="Buka di Ponsel & Target Marker AR (Scan Wi-Fi)"
+                      className="btn-icon"
+                      style={{ color: 'var(--primary-light)' }}
+                    >
+                      <Smartphone size={15} />
+                    </button>
+
+                    <button
                       onClick={() => handleOpenShare(project)}
                       title="Bagikan & QR Code"
                       className="btn-icon"
@@ -874,13 +886,36 @@ export default function DashboardPage() {
               </div>
             </div>
 
-            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-              <button onClick={() => setShareProject(null)} className="btn btn-primary" style={{ width: '100%' }}>
-                Selesai
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginTop: '1.25rem' }}>
+              <button
+                onClick={() => {
+                  const target = shareProject;
+                  setShareProject(null);
+                  setMobileScanProject(target);
+                }}
+                className="btn btn-accent"
+                style={{ width: '100%', justifyContent: 'center', background: 'linear-gradient(135deg, var(--primary) 0%, var(--accent) 100%)' }}
+              >
+                <Smartphone size={16} /> Buka Panduan Lengkap Pindai di HP (Wi-Fi)
+              </button>
+              <button onClick={() => setShareProject(null)} className="btn btn-secondary" style={{ width: '100%' }}>
+                Tutup
               </button>
             </div>
           </div>
         </div>
+      )}
+
+      {/* Mobile Scan & AR Target Modal */}
+      {mobileScanProject && (
+        <MobileScanModal
+          isOpen={!!mobileScanProject}
+          onClose={() => setMobileScanProject(null)}
+          slug={mobileScanProject.slug}
+          title={mobileScanProject.title}
+          markerImage={mobileScanProject.marker?.imageUrl || '/markers/card.png'}
+          markerName={mobileScanProject.marker?.name || 'Kartu Target MindAR'}
+        />
       )}
     </div>
   );

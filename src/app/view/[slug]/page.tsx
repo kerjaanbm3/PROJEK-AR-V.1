@@ -35,9 +35,11 @@ import {
   ChevronLeft,
   ChevronRight,
   Volume2,
-  Video
+  Video,
+  Smartphone
 } from 'lucide-react';
 import QRCode from 'qrcode';
+import MobileScanModal from '@/components/common/MobileScanModal';
 
 export default function PublicViewerPage() {
   const params = useParams();
@@ -64,6 +66,7 @@ export default function PublicViewerPage() {
   const [arRotationY, setArRotationY] = useState(0);
 
   // Modals & Screen Target mode
+  const [showMobileScanModal, setShowMobileScanModal] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
   const [showMarkerGuide, setShowMarkerGuide] = useState(false);
   const [screenTargetMode, setScreenTargetMode] = useState(false);
@@ -1224,12 +1227,29 @@ export default function PublicViewerPage() {
         {/* Right Action Icons */}
         <div style={{ display: 'flex', gap: '0.35rem', pointerEvents: 'auto' }}>
           <button
+            onClick={() => setShowMobileScanModal(true)}
+            className="btn btn-primary"
+            style={{
+              fontSize: '0.8125rem',
+              padding: '0.45rem 0.85rem',
+              background: 'linear-gradient(135deg, var(--primary) 0%, var(--accent) 100%)',
+              boxShadow: '0 0 15px rgba(99, 102, 241, 0.4)',
+              color: '#ffffff',
+              border: 'none',
+              fontWeight: 600
+            }}
+            title="Buka Viewer di HP & Pindai Marker Target"
+          >
+            <Smartphone size={15} /> <span>Buka di HP & Target</span>
+          </button>
+
+          <button
             onClick={() => setShowMarkerGuide(true)}
-            className="btn btn-secondary"
+            className="btn btn-secondary hide-on-mobile"
             style={{ fontSize: '0.8125rem', padding: '0.45rem 0.75rem', background: 'rgba(10, 12, 20, 0.85)', backdropFilter: 'blur(12px)' }}
             title="Lihat Target Gambar AR Fisik"
           >
-            <Eye size={15} /> <span className="hide-on-mobile">Target AR</span>
+            <Eye size={15} /> <span>Target AR</span>
           </button>
 
           <button
@@ -1674,6 +1694,19 @@ export default function PublicViewerPage() {
             </button>
           </div>
         </div>
+      )}
+
+      {/* Mobile Scan & Target Marker Modal */}
+      {project && (
+        <MobileScanModal
+          isOpen={showMobileScanModal}
+          onClose={() => setShowMobileScanModal(false)}
+          slug={slug}
+          title={project.title}
+          markerImage={markerImage}
+          markerName={markerName}
+          markerOrientation={markerOrientation}
+        />
       )}
     </div>
   );

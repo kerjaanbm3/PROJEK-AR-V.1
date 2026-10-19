@@ -35,10 +35,12 @@ import {
   Video,
   Layers,
   MousePointerClick,
-  Play
+  Play,
+  Smartphone
 } from 'lucide-react';
 import QRCode from 'qrcode';
 import Editor3DCanvas, { EditorObject } from '@/components/3d/Editor3DCanvas';
+import MobileScanModal from '@/components/common/MobileScanModal';
 
 export interface EditorScene {
   id: string;
@@ -80,6 +82,7 @@ export default function DefaultEditorPage() {
   const [assetSearch, setAssetSearch] = useState('');
   const [isUploadingDirect, setIsUploadingDirect] = useState(false);
 
+  const [showMobileScanModal, setShowMobileScanModal] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
   const [showMarkerModal, setShowMarkerModal] = useState(false);
   const [selectedMarkerId, setSelectedMarkerId] = useState<string | null>(null);
@@ -780,6 +783,23 @@ export default function DefaultEditorPage() {
         {/* Right: Mode Switch, Preview & Share */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
           <button
+            onClick={() => setShowMobileScanModal(true)}
+            className="btn btn-primary"
+            style={{
+              fontSize: '0.75rem',
+              padding: '0.35rem 0.75rem',
+              gap: '0.35rem',
+              fontWeight: 600,
+              background: 'linear-gradient(135deg, var(--primary) 0%, var(--accent) 100%)',
+              boxShadow: '0 0 12px rgba(99, 102, 241, 0.35)',
+              color: '#ffffff',
+              border: 'none'
+            }}
+            title="Buka Viewer di HP & Pindai Marker Target untuk Uji Coba Langsung"
+          >
+            <Smartphone size={13} /> <span>Uji di HP</span>
+          </button>
+          <button
             onClick={() => setShowMarkerModal(true)}
             className="btn btn-secondary"
             style={{ fontSize: '0.75rem', padding: '0.35rem 0.6rem', gap: '0.35rem' }}
@@ -796,7 +816,7 @@ export default function DefaultEditorPage() {
           </Link>
           <button
             onClick={handleOpenShare}
-            className="btn btn-primary"
+            className="btn btn-secondary"
             style={{ fontSize: '0.75rem', padding: '0.35rem 0.75rem' }}
           >
             <Share2 size={13} /> <span>Bagikan</span>
@@ -1976,6 +1996,19 @@ export default function DefaultEditorPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Mobile Scan & AR Target Modal */}
+      {project && (
+        <MobileScanModal
+          isOpen={showMobileScanModal}
+          onClose={() => setShowMobileScanModal(false)}
+          slug={project.slug}
+          title={project.title}
+          markerImage={project.marker?.imageUrl || '/markers/card.png'}
+          markerName={project.marker?.name || 'Kartu Target MindAR'}
+          markerOrientation={project.marker?.orientation || 'HORIZONTAL'}
+        />
       )}
     </div>
   );

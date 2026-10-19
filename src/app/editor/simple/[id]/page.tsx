@@ -16,10 +16,12 @@ import {
   ExternalLink,
   Copy,
   Sliders,
-  Maximize2
+  Maximize2,
+  Smartphone
 } from 'lucide-react';
 import QRCode from 'qrcode';
 import Simple3DPreview from '@/components/3d/Simple3DPreview';
+import MobileScanModal from '@/components/common/MobileScanModal';
 
 export default function SuperSimpleEditorPage() {
   const params = useParams();
@@ -45,7 +47,8 @@ export default function SuperSimpleEditorPage() {
   const [color, setColor] = useState<string>('#6366f1');
   const [wireframe, setWireframe] = useState<boolean>(false);
 
-  // Share modal
+  // Share & Mobile Scan modal
+  const [showMobileScanModal, setShowMobileScanModal] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
   const [qrCodeUrl, setQrCodeUrl] = useState('');
   const [copiedLink, setCopiedLink] = useState(false);
@@ -260,6 +263,22 @@ export default function SuperSimpleEditorPage() {
         {/* Action Buttons */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
           <button
+            onClick={() => setShowMobileScanModal(true)}
+            className="btn btn-primary"
+            style={{
+              fontSize: '0.8125rem',
+              padding: '0.45rem 0.85rem',
+              background: 'linear-gradient(135deg, var(--primary) 0%, var(--accent) 100%)',
+              boxShadow: '0 0 12px rgba(99, 102, 241, 0.35)',
+              color: '#ffffff',
+              border: 'none',
+              fontWeight: 600
+            }}
+            title="Buka Viewer di HP & Pindai Marker Target"
+          >
+            <Smartphone size={14} /> <span>Uji di HP</span>
+          </button>
+          <button
             onClick={handleSwitchToFullEditor}
             className="btn btn-secondary hide-on-mobile"
             style={{ fontSize: '0.8125rem', padding: '0.45rem 0.75rem' }}
@@ -270,7 +289,7 @@ export default function SuperSimpleEditorPage() {
           <button
             onClick={() => handleSave(true)}
             disabled={saving}
-            className="btn btn-primary"
+            className="btn btn-secondary"
             style={{ fontSize: '0.8125rem', padding: '0.45rem 0.875rem' }}
           >
             <Share2 size={14} /> <span>{saving ? 'Menyimpan...' : 'Simpan'}</span>
@@ -659,6 +678,19 @@ export default function SuperSimpleEditorPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Mobile Scan & AR Target Modal */}
+      {project && (
+        <MobileScanModal
+          isOpen={showMobileScanModal}
+          onClose={() => setShowMobileScanModal(false)}
+          slug={project.slug}
+          title={project.title}
+          markerImage={markers.find((m) => m.id === selectedMarkerId)?.imageUrl || project.marker?.imageUrl || '/markers/card.png'}
+          markerName={markers.find((m) => m.id === selectedMarkerId)?.name || project.marker?.name || 'Kartu Target MindAR'}
+          markerOrientation={markers.find((m) => m.id === selectedMarkerId)?.orientation || project.marker?.orientation || 'HORIZONTAL'}
+        />
       )}
     </div>
   );
