@@ -48,6 +48,11 @@ export default function PublicViewerPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Active Marker metadata with fallback to default MindAR target card
+  const markerImage = project?.marker?.imageUrl || '/markers/card.png';
+  const markerName = project?.marker?.name || 'Kartu Target MindAR';
+  const markerOrientation = project?.marker?.orientation || 'HORIZONTAL';
+
   // Viewer modes: '3D' or 'AR'
   const [viewerMode, setViewerMode] = useState<'3D' | 'AR'>('3D');
   const [autoRotate, setAutoRotate] = useState(true);
@@ -1019,29 +1024,25 @@ export default function PublicViewerPage() {
             ) : (
               <>
                 <Sparkles size={12} />
-                <span>Target: {project.marker?.name || 'MindAR Target'}</span>
+                <span>Target: {markerName}</span>
               </>
             )}
           </div>
 
           {/* Center Watermark & Scanline */}
           <div style={{ position: 'relative', width: 'min(120px, 35vw)', height: 'min(120px, 35vw)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            {project.marker?.imageUrl ? (
-              <img
-                src={project.marker.imageUrl}
-                alt="Target Outline"
-                style={{
-                  maxHeight: '100%',
-                  maxWidth: '100%',
-                  objectFit: 'contain',
-                  opacity: isTargetFound ? 0.8 : 0.35,
-                  filter: isTargetFound ? 'drop-shadow(0 0 12px rgba(16, 185, 129, 0.8))' : 'drop-shadow(0 0 8px rgba(6, 182, 212, 0.5))',
-                  transition: 'all 0.3s'
-                }}
-              />
-            ) : (
-              <Box size={36} color={isTargetFound ? '#34d399' : 'var(--accent-light)'} style={{ opacity: 0.5 }} />
-            )}
+            <img
+              src={markerImage}
+              alt="Target Outline"
+              style={{
+                maxHeight: '100%',
+                maxWidth: '100%',
+                objectFit: 'contain',
+                opacity: isTargetFound ? 0.85 : 0.45,
+                filter: isTargetFound ? 'drop-shadow(0 0 12px rgba(16, 185, 129, 0.8))' : 'drop-shadow(0 0 8px rgba(6, 182, 212, 0.5))',
+                transition: 'all 0.3s'
+              }}
+            />
             
             {/* Animated Laser Scanline (only when searching) */}
             {!isTargetFound && (
@@ -1222,16 +1223,14 @@ export default function PublicViewerPage() {
 
         {/* Right Action Icons */}
         <div style={{ display: 'flex', gap: '0.35rem', pointerEvents: 'auto' }}>
-          {project.marker?.imageUrl && (
-            <button
-              onClick={() => setShowMarkerGuide(true)}
-              className="btn btn-secondary"
-              style={{ fontSize: '0.8125rem', padding: '0.45rem 0.75rem', background: 'rgba(10, 12, 20, 0.85)', backdropFilter: 'blur(12px)' }}
-              title="Lihat Marker AR Fisik"
-            >
-              <QrCode size={15} /> <span className="hide-on-mobile">Marker</span>
-            </button>
-          )}
+          <button
+            onClick={() => setShowMarkerGuide(true)}
+            className="btn btn-secondary"
+            style={{ fontSize: '0.8125rem', padding: '0.45rem 0.75rem', background: 'rgba(10, 12, 20, 0.85)', backdropFilter: 'blur(12px)' }}
+            title="Lihat Target Gambar AR Fisik"
+          >
+            <Eye size={15} /> <span className="hide-on-mobile">Target AR</span>
+          </button>
 
           <button
             onClick={toggleFullscreen}
@@ -1404,16 +1403,14 @@ export default function PublicViewerPage() {
               <Download size={16} /> <span>{photoSaved ? 'Tersimpan!' : 'Foto AR'}</span>
             </button>
 
-            {project.marker?.imageUrl && (
-              <button
-                onClick={() => setShowMarkerGuide(true)}
-                className="btn btn-secondary"
-                style={{ padding: '0.625rem 0.875rem', minHeight: '44px', background: 'rgba(10, 12, 20, 0.85)', backdropFilter: 'blur(16px)', fontSize: '0.8125rem' }}
-                title="Tampilkan Target Marker Fisik"
-              >
-                <Eye size={16} /> <span>Target</span>
-              </button>
-            )}
+            <button
+              onClick={() => setShowMarkerGuide(true)}
+              className="btn btn-secondary"
+              style={{ padding: '0.625rem 0.875rem', minHeight: '44px', background: 'rgba(10, 12, 20, 0.85)', backdropFilter: 'blur(16px)', fontSize: '0.8125rem' }}
+              title="Tampilkan Target Marker Fisik"
+            >
+              <Eye size={16} /> <span>Target</span>
+            </button>
 
             <button
               onClick={stopARMode}
@@ -1454,7 +1451,7 @@ export default function PublicViewerPage() {
       )}
 
       {/* Marker Image Drawer / Modal */}
-      {showMarkerGuide && project.marker && (
+      {showMarkerGuide && (
         <div style={{
           position: 'fixed',
           inset: 0,
@@ -1471,7 +1468,7 @@ export default function PublicViewerPage() {
               <div style={{ textAlign: 'left' }}>
                 <h2 style={{ fontSize: '1.125rem', fontWeight: 800 }}>🎯 Visual Target AR Marker</h2>
                 <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-                  {project.marker.name} • {(project.marker.orientation || 'HORIZONTAL') === 'HORIZONTAL' ? 'Horizontal (Meja)' : 'Vertical (Dinding)'}
+                  {markerName} • {markerOrientation === 'HORIZONTAL' ? 'Horizontal (Meja)' : 'Vertical (Dinding)'}
                 </div>
               </div>
               <button onClick={() => setShowMarkerGuide(false)} className="btn-icon">
@@ -1480,7 +1477,7 @@ export default function PublicViewerPage() {
             </div>
 
             <p style={{ fontSize: '0.8125rem', color: 'var(--text-secondary)', marginBottom: '1.25rem' }}>
-              Arahkan kamera ponsel Anda ke gambar target ini untuk memunculkan konten visual:
+              Arahkan kamera ponsel Anda ke gambar target ini untuk memunculkan konten visual 3D:
             </p>
 
             <div style={{
@@ -1493,7 +1490,7 @@ export default function PublicViewerPage() {
               boxShadow: '0 8px 24px rgba(0,0,0,0.4)'
             }}>
               <img
-                src={project.marker.imageUrl}
+                src={markerImage}
                 alt="Marker AR"
                 style={{ width: '220px', height: '220px', objectFit: 'contain' }}
               />
@@ -1520,11 +1517,11 @@ export default function PublicViewerPage() {
                     if (printWin) {
                       printWin.document.write(`
                         <html>
-                          <head><title>Cetak Marker AR - ${project.marker.name}</title></head>
+                          <head><title>Cetak Marker AR - ${markerName}</title></head>
                           <body style="display:flex; flex-direction:column; align-items:center; justify-content:center; height:100vh; font-family:sans-serif; text-align:center;">
                             <h2>TARGET AR: ${project.title}</h2>
                             <div style="border:4px solid #000; padding:20px; display:inline-block;">
-                              <img src="${project.marker.imageUrl}" style="width:400px; height:400px; object-fit:contain;" />
+                              <img src="${markerImage}" style="width:400px; height:400px; object-fit:contain;" />
                             </div>
                             <p style="margin-top:20px; font-weight:bold; font-size:16px;">AR STUDIO BM3</p>
                             <p style="color:#64748b; font-size:13px;">Buka tautan proyek di browser ponsel lalu arahkan kamera ke gambar ini!</p>
@@ -1542,7 +1539,7 @@ export default function PublicViewerPage() {
                 </button>
 
                 <a
-                  href={project.marker.imageUrl}
+                  href={markerImage}
                   target="_blank"
                   download="target-marker-ar.png"
                   className="btn btn-secondary"
@@ -1561,7 +1558,7 @@ export default function PublicViewerPage() {
       )}
 
       {/* Full-Screen Target Display (Point phone camera directly at monitor) */}
-      {screenTargetMode && project.marker && (
+      {screenTargetMode && (
         <div style={{
           position: 'fixed',
           inset: 0,
@@ -1596,7 +1593,7 @@ export default function PublicViewerPage() {
             marginBottom: '1.5rem',
             textAlign: 'center'
           }}>
-            Arahkan kamera ponsel Anda ke layar monitor ini untuk memunculkan AR secara instan!
+            Arahkan kamera ponsel Anda ke gambar di layar monitor ini untuk memunculkan AR secara instan!
           </div>
 
           <div style={{
@@ -1607,14 +1604,14 @@ export default function PublicViewerPage() {
             boxShadow: '0 20px 50px rgba(0,0,0,0.15)'
           }}>
             <img
-              src={project.marker.imageUrl}
-              alt={project.marker.name}
+              src={markerImage}
+              alt={markerName}
               style={{ width: '380px', height: '380px', maxHeight: '55vh', maxWidth: '80vw', objectFit: 'contain' }}
             />
           </div>
 
           <div style={{ marginTop: '1.25rem', fontSize: '0.8125rem', color: '#64748b' }}>
-            Marker: <strong>{project.marker.name}</strong> • Orientasi: {(project.marker.orientation || 'HORIZONTAL') === 'HORIZONTAL' ? 'Horizontal (Meja)' : 'Vertical (Dinding)'}
+            Marker: <strong>{markerName}</strong> • Orientasi: {markerOrientation === 'HORIZONTAL' ? 'Horizontal (Meja)' : 'Vertical (Dinding)'}
           </div>
         </div>
       )}
