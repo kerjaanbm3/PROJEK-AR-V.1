@@ -1,0 +1,49 @@
+# Rahasia & Environment Variables
+.env
+.env*.local
+*.key
+*.pem
+secrets.*
+
+# Dependensi
+node_modules/
+/.pnp
+.pnp.js
+
+# Hasil Build & Cache Next.js
+.next/
+out/
+build/
+dist/
+*.tsbuildinfo
+next-env.d.ts
+
+# Database Lokal SQLite & Cache DB
+prisma/*.db
+prisma/*.db-journal
+*.sqlite
+*.sqlite3
+*.db
+*.db-journal
+
+# File Sistem dan Editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Log dan Data Sementara
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+*.log
+tmp/
+.turbo/
+
+# Upload User & Custom Marker Pribadi
+public/uploads/*
+!public/uploads/.gitkeep
+public/markers/marker-*
+

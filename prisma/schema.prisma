@@ -1,0 +1,93 @@
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id           String    @id @default(cuid())
+  email        String    @unique
+  passwordHash String
+  name         String?
+  role         String    @default("ADMIN")
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  projects     Project[]
+  assets       Asset[]
+  markers      Marker[]
+}
+
+model Project {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title       String
+  description String?
+  slug        String   @unique
+  mode        String   @default("DEFAULT") // SIMPLE, DEFAULT
+  status      String   @default("PUBLISHED") // DRAFT, PUBLISHED, PRIVATE
+  markerId    String?
+  marker      Marker?  @relation(fields: [markerId], references: [id])
+  thumbnail   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  scenes      Scene[]
+}
+
+model Scene {
+  id              String   @id @default(cuid())
+  projectId       String
+  project         Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  order           Int      @default(0)
+  name            String   @default("Scene 1")
+  backgroundColor String   @default("#12131a")
+  objects         Object[]
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+model Object {
+  id         String   @id @default(cuid())
+  sceneId    String
+  scene      Scene    @relation(fields: [sceneId], references: [id], onDelete: Cascade)
+  name       String   @default("Object")
+  type       String   // 3D_MODEL, TEXT_3D, IMAGE, LIGHT, GEOMETRY
+  assetId    String?
+  asset      Asset?   @relation(fields: [assetId], references: [id])
+  transform  String   // JSON: { position: [x,y,z], rotation: [x,y,z], scale: [x,y,z] }
+  properties String   // JSON: { text, color, shape, intensity, etc. }
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+model Asset {
+  id        String   @id @default(cuid())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  name      String
+  type      String   // MODEL_3D, IMAGE, AUDIO, VIDEO
+  fileUrl   String
+  fileSize  Int
+  mimeType  String
+  isDefault Boolean  @default(false)
+  createdAt DateTime @default(now())
+  objects   Object[]
+}
+
+model Marker {
+  id           String    @id @default(cuid())
+  userId       String?
+  user         User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+  name         String
+  imageUrl     String    // Lokasi file gambar (imagePath)
+  patternUrl   String?
+  orientation  String    @default("HORIZONTAL") // HORIZONTAL atau VERTICAL
+  qualityScore Int       @default(85)           // 0 - 100
+  projectId    String?                          // Proyek yang dipasangkan
+  isDefault    Boolean   @default(false)
+  createdAt    DateTime  @default(now())
+  projects     Project[]
+}
