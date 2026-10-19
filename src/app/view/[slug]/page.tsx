@@ -616,7 +616,19 @@ export default function PublicViewerPage() {
     }
 
     try {
-      const { MindARThree } = await import('mindar-image-three');
+      // Use native browser dynamic import to bypass Webpack module bundling and resolve from <script type="importmap">
+      const browserImport = new Function('specifier', 'return import(specifier)');
+      let MindARThreeModule: any;
+      try {
+        MindARThreeModule = await browserImport('mindar-image-three');
+      } catch (err) {
+        console.warn('Importing via importmap specifier failed, trying direct CDN URL...', err);
+        MindARThreeModule = await browserImport('https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-three.prod.js');
+      }
+      const MindARThree = MindARThreeModule?.MindARThree || MindARThreeModule?.default?.MindARThree;
+      if (!MindARThree) {
+        throw new Error('MindARThree constructor tidak ditemukan dalam modul');
+      }
 
       if (!mindarContainerRef.current) {
         throw new Error('Container MindAR belum siap');
