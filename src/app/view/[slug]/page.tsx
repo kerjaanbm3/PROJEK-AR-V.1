@@ -787,6 +787,21 @@ export default function PublicViewerPage() {
     }
   };
 
+  // Auto-start AR camera when opened with query string (?ar=1, ?scan=1, ?mode=ar, or #scan)
+  useEffect(() => {
+    if (loading || !project) return;
+    if (typeof window !== 'undefined') {
+      const search = window.location.search;
+      const hash = window.location.hash;
+      if (search.includes('ar=') || search.includes('scan=') || search.includes('mode=ar') || hash === '#ar' || hash === '#scan') {
+        const timer = setTimeout(() => {
+          startARMode('IMAGE_TRACKING');
+        }, 500);
+        return () => clearTimeout(timer);
+      }
+    }
+  }, [loading, project]);
+
   // Stop Camera & Return to 3D Orbit Mode
   const stopARMode = () => {
     if (mindarThreeRef.current) {

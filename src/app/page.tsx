@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import prisma from '@/lib/prisma';
-import { Box, Sparkles, Layers, Eye, ArrowRight, ShieldCheck, QrCode } from 'lucide-react';
+import { Box, Sparkles, Layers, Eye, ArrowRight, ShieldCheck, QrCode, Camera } from 'lucide-react';
+import ScanMarkerARButton from '@/components/common/ScanMarkerARButton';
 
 export const dynamic = 'force-dynamic';
 
@@ -8,7 +9,13 @@ export default async function HomePage() {
   const projectCount = await prisma.project.count();
   const assetCount = await prisma.asset.count();
   const demoProject = await prisma.project.findFirst({
-    where: { slug: 'demo-kantor-ar' }
+    where: { slug: 'demo-kantor-ar' },
+    include: { marker: true }
+  }) || await prisma.project.findFirst({
+    where: { status: 'PUBLISHED' },
+    include: { marker: true }
+  }) || await prisma.project.findFirst({
+    include: { marker: true }
   });
 
   return (
@@ -50,8 +57,8 @@ export default async function HomePage() {
 
         <nav style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
           {demoProject && (
-            <Link href={`/view/${demoProject.slug}`} className="btn btn-secondary hide-on-mobile" style={{ fontSize: '0.8125rem' }}>
-              <Eye size={16} /> Pratinjau Demo AR
+            <Link href={`/view/${demoProject.slug}?ar=1`} className="btn btn-secondary hide-on-mobile" style={{ fontSize: '0.8125rem' }}>
+              <Camera size={15} /> Pindai AR (Kamera)
             </Link>
           )}
           <Link href="/dashboard" className="btn btn-primary" style={{ fontSize: '0.8125rem', padding: '0.5rem 0.875rem' }}>
@@ -128,9 +135,13 @@ export default async function HomePage() {
               <Layers size={18} /> Buka Dashboard Studio
             </Link>
             {demoProject && (
-              <Link href={`/view/${demoProject.slug}`} className="btn btn-secondary" style={{ padding: '0.875rem 1.75rem', fontSize: '1rem', minWidth: '220px' }}>
-                <QrCode size={18} /> Buka Demo AR Interaktif
-              </Link>
+              <ScanMarkerARButton
+                slug={demoProject.slug}
+                title={demoProject.title}
+                markerImage={demoProject.marker?.imageUrl || '/markers/card.png'}
+                markerName={demoProject.marker?.name || 'Kartu Target MindAR'}
+                markerOrientation={demoProject.marker?.orientation || 'HORIZONTAL'}
+              />
             )}
           </div>
         </div>
