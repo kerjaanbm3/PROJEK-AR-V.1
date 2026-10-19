@@ -11,7 +11,7 @@ import { TextGeometry } from 'three/addons/geometries/TextGeometry.js';
 export interface EditorObject {
   id: string;
   name: string;
-  type: string; // 'GEOMETRY' | '3D_MODEL' | 'TEXT_3D' | 'LIGHT' | 'IMAGE'
+  type: string; // 'GEOMETRY' | '3D_MODEL' | 'TEXT_3D' | 'LIGHT' | 'IMAGE' | 'VIDEO' | 'AUDIO'
   assetId?: string | null;
   asset?: { fileUrl: string; name: string; mimeType?: string } | null;
   transform: {
@@ -31,6 +31,16 @@ export interface EditorObject {
     intensity?: number;
     width?: number;
     height?: number;
+    videoUrl?: string;
+    audioUrl?: string;
+    animation?: 'NONE' | 'SPIN' | 'BOUNCE' | 'PULSE';
+    animSpeed?: number;
+    trigger?: {
+      action: 'NONE' | 'OPEN_URL' | 'SWITCH_SCENE' | 'TOGGLE_AUDIO';
+      url?: string;
+      targetScene?: number;
+      audioUrl?: string;
+    };
   };
 }
 
@@ -412,6 +422,49 @@ export default function Editor3DCanvas({
         const planeMesh = new THREE.Mesh(planeGeo, imgMat);
         group.add(planeMesh);
       }
+    } else if (obj.type === 'VIDEO') {
+      const videoGeo = new THREE.PlaneGeometry(2, 1.125);
+      const videoCanvas = document.createElement('canvas');
+      videoCanvas.width = 512;
+      videoCanvas.height = 288;
+      const vctx = videoCanvas.getContext('2d');
+      if (vctx) {
+        vctx.fillStyle = '#0f172a';
+        vctx.fillRect(0, 0, 512, 288);
+        vctx.strokeStyle = '#38bdf8';
+        vctx.lineWidth = 6;
+        vctx.strokeRect(6, 6, 500, 276);
+        // Draw play icon
+        vctx.fillStyle = '#38bdf8';
+        vctx.beginPath();
+        vctx.moveTo(230, 110);
+        vctx.lineTo(290, 144);
+        vctx.lineTo(230, 178);
+        vctx.closePath();
+        vctx.fill();
+        vctx.font = 'bold 24px sans-serif';
+        vctx.textAlign = 'center';
+        vctx.fillText(obj.asset?.name || 'VIDEO AR', 256, 220);
+      }
+      const vTex = new THREE.CanvasTexture(videoCanvas);
+      const vMat = new THREE.MeshBasicMaterial({ map: vTex, side: THREE.DoubleSide });
+      const videoMesh = new THREE.Mesh(videoGeo, vMat);
+      group.add(videoMesh);
+    } else if (obj.type === 'AUDIO') {
+      // 3D Audio Speaker representation
+      const speakerMat = new THREE.MeshStandardMaterial({
+        color: new THREE.Color(0x06b6d4),
+        metalness: 0.8,
+        roughness: 0.2
+      });
+      const speakerBase = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.45, 0.35, 24), speakerMat);
+      const speakerCone = new THREE.Mesh(
+        new THREE.ConeGeometry(0.3, 0.4, 24),
+        new THREE.MeshBasicMaterial({ color: 0x38bdf8, wireframe: true })
+      );
+      speakerCone.position.y = 0.25;
+      group.add(speakerBase);
+      group.add(speakerCone);
     } else if (obj.type === 'LIGHT') {
       const lightMesh = new THREE.Mesh(
         new THREE.OctahedronGeometry(0.3),

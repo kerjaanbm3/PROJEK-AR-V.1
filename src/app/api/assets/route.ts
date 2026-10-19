@@ -53,23 +53,44 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'File tidak ditemukan' }, { status: 400 });
     }
 
-    // Determine asset type
-    const mimeType = file.type || '';
-    const originalName = file.name;
-    const ext = path.extname(originalName).toLowerCase();
+    // Strict security whitelist for uploads
+    const ALLOWED_EXTENSIONS: Record<string, string> = {
+      '.glb': 'MODEL_3D',
+      '.gltf': 'MODEL_3D',
+      '.png': 'IMAGE',
+      '.jpg': 'IMAGE',
+      '.jpeg': 'IMAGE',
+      '.webp': 'IMAGE',
+      '.gif': 'GIF',
+      '.mp3': 'AUDIO',
+      '.wav': 'AUDIO',
+      '.ogg': 'AUDIO',
+      '.mp4': 'VIDEO',
+      '.webm': 'VIDEO'
+    };
 
-    let assetType = 'IMAGE';
-    if (ext === '.glb' || ext === '.gltf' || ext === '.obj' || mimeType.includes('gltf') || mimeType.includes('model')) {
-      assetType = 'MODEL_3D';
-    } else if (ext === '.gif' || mimeType === 'image/gif') {
-      assetType = 'GIF';
-    } else if (ext === '.mp3' || ext === '.wav' || mimeType.includes('audio')) {
-      assetType = 'AUDIO';
-    } else if (ext === '.mp4' || ext === '.webm' || mimeType.includes('video')) {
-      assetType = 'VIDEO';
-    } else if (['.png', '.jpg', '.jpeg', '.svg', '.webp'].includes(ext) || mimeType.includes('image')) {
-      assetType = 'IMAGE';
+    const originalName = path.basename(file.name);
+    const ext = path.extname(originalName).toLowerCase();
+    const mimeType = (file.type || '').toLowerCase();
+
+    // Block any executable, script, HTML, or SVG to eliminate stored XSS risks
+    if (
+      !ALLOWED_EXTENSIONS[ext] ||
+      mimeType.includes('html') ||
+      mimeType.includes('svg') ||
+      mimeType.includes('javascript') ||
+      mimeType.includes('xml')
+    ) {
+      return NextResponse.json(
+        {
+          error:
+            'Format file ditolak demi alasan keamanan. Hanya file 3D (.glb, .gltf), Gambar raster (.png, .jpg, .webp, .gif), Audio (.mp3, .wav, .ogg), dan Video (.mp4, .webm) yang diizinkan.'
+        },
+        { status: 400 }
+      );
     }
+
+    const assetType = ALLOWED_EXTENSIONS[ext];
 
     // Max 30MB file size limit
     if (file.size > 30 * 1024 * 1024) {

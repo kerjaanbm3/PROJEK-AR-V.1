@@ -57,12 +57,17 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'File marker wajib diunggah' }, { status: 400 });
     }
 
-    const originalName = file.name;
+    const originalName = path.basename(file.name);
     const ext = path.extname(originalName).toLowerCase();
+    const mimeType = (file.type || '').toLowerCase();
 
-    if (!['.png', '.jpg', '.jpeg', '.svg', '.webp'].includes(ext)) {
+    if (
+      !['.png', '.jpg', '.jpeg', '.webp'].includes(ext) ||
+      mimeType.includes('svg') ||
+      mimeType.includes('html')
+    ) {
       return NextResponse.json(
-        { error: 'Format marker harus berupa gambar (PNG, JPG, SVG, WebP)' },
+        { error: 'Format marker harus berupa gambar raster (PNG, JPG, JPEG, WebP). Format SVG tidak diizinkan demi keamanan.' },
         { status: 400 }
       );
     }

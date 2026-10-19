@@ -44,11 +44,21 @@ Buka browser di [http://localhost:3000](http://localhost:3000).
 
 ---
 
-## 🔑 Kredensial Admin Default
+## 🔑 Autentikasi & Akun Administrator
 
-- **URL Login**: [http://localhost:3000/login](http://localhost:3000/login)
-- **Email**: `admin@kantor.local`
-- **Kata Sandi**: `admin12345`
+Konfigurasikan email dan kata sandi akun administrator pada file `.env` (atau salin dari `.env.example`):
+```env
+ADMIN_EMAIL="admin@kantor.local"
+ADMIN_PASSWORD="kata-sandi-rahasia-anda"
+SESSION_SECRET="kunci-rahasia-sesi-acak-minimal-32-karakter"
+```
+
+Setelah file `.env` disesuaikan, jalankan:
+```bash
+npm run db:seed
+```
+Akun administrator akan otomatis diinisialisasi secara terenkripsi menggunakan bcrypt dengan aman.
+URL Login: [http://localhost:3000/login](http://localhost:3000/login)
 
 ---
 

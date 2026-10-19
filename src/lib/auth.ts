@@ -3,7 +3,25 @@ import { cookies } from 'next/headers';
 import prisma from './prisma';
 
 const SESSION_COOKIE_NAME = 'ar_session_token';
-const SECRET = process.env.SESSION_SECRET || 'super-secret-key-ar-studio-bm3-default';
+
+// Secure session secret: avoid predictable static strings
+function getSessionSecret(): string {
+  if (process.env.SESSION_SECRET && process.env.SESSION_SECRET.trim().length >= 16) {
+    return process.env.SESSION_SECRET;
+  }
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('FATAL: Variabel lingkungan SESSION_SECRET wajib disetel minimal 16 karakter di mode produksi.');
+  }
+  // For local development when .env is omitted, generate or maintain a process-scoped random secret
+  const globalAny = global as any;
+  if (!globalAny.__dev_session_secret) {
+    globalAny.__dev_session_secret = crypto.randomBytes(32).toString('hex');
+    console.warn('[SECURITY WARNING] Menggunakan kunci rahasia sesi dinamis untuk dev lokal. Tambahkan SESSION_SECRET ke .env untuk persistensi.');
+  }
+  return globalAny.__dev_session_secret;
+}
+
+const SECRET = getSessionSecret();
 
 export interface SessionPayload {
   userId: string;

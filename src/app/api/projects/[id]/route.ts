@@ -54,7 +54,7 @@ export async function PUT(
 
     const { id } = await params;
     const body = await request.json();
-    const { title, description, status, mode, markerId, scenes } = body;
+    const { title, description, status, mode, markerId, thumbnail, scenes } = body;
 
     const project = await prisma.project.findUnique({
       where: { id }
@@ -64,93 +64,107 @@ export async function PUT(
       return NextResponse.json({ error: 'Proyek tidak ditemukan' }, { status: 404 });
     }
 
-    // 1. Update project basic attributes
-    await prisma.project.update({
-      where: { id },
-      data: {
-        title: title !== undefined ? title : project.title,
-        description: description !== undefined ? description : project.description,
-        status: status !== undefined ? status : project.status,
-        mode: mode !== undefined ? mode : project.mode,
-        markerId: markerId !== undefined ? markerId : project.markerId,
-      }
-    });
+    // Atomic transaction for project, scenes, and objects
+    const updated = await prisma.$transaction(async (tx) => {
+      // 1. Update project basic attributes
+      await tx.project.update({
+        where: { id },
+        data: {
+          title: title !== undefined ? title.trim() : project.title,
+          description: description !== undefined ? (description?.trim() || null) : project.description,
+          status: status !== undefined ? status : project.status,
+          mode: mode !== undefined ? mode : project.mode,
+          markerId: markerId !== undefined ? markerId : project.markerId,
+          thumbnail: thumbnail !== undefined ? thumbnail : project.thumbnail,
+        }
+      });
 
-    // 2. If scenes are supplied, perform full sync of scenes and objects
-    if (Array.isArray(scenes)) {
-      for (const sceneData of scenes) {
-        if (!sceneData.id || sceneData.id.startsWith('temp_')) {
-          // New scene
-          const createdScene = await prisma.scene.create({
-            data: {
-              projectId: id,
-              name: sceneData.name || 'Scene',
-              order: sceneData.order ?? 0,
-              backgroundColor: sceneData.backgroundColor || '#0f111a',
-            }
-          });
+      // 2. If scenes are supplied, perform full atomic sync of scenes and objects
+      if (Array.isArray(scenes)) {
+        const existingScenes = await tx.scene.findMany({
+          where: { projectId: id }
+        });
 
-          if (Array.isArray(sceneData.objects)) {
-            for (const obj of sceneData.objects) {
-              await prisma.object.create({
-                data: {
-                  sceneId: createdScene.id,
-                  name: obj.name || 'Object',
-                  type: obj.type || 'GEOMETRY',
-                  assetId: obj.assetId || null,
-                  transform: typeof obj.transform === 'string' ? obj.transform : JSON.stringify(obj.transform),
-                  properties: typeof obj.properties === 'string' ? obj.properties : JSON.stringify(obj.properties)
-                }
-              });
-            }
+        const incomingSceneIds = new Set(
+          scenes
+            .filter((s: any) => s.id && !s.id.startsWith('temp_'))
+            .map((s: any) => s.id)
+        );
+
+        // Delete scenes that were removed in the editor
+        for (const existingScene of existingScenes) {
+          if (!incomingSceneIds.has(existingScene.id)) {
+            await tx.object.deleteMany({ where: { sceneId: existingScene.id } });
+            await tx.scene.delete({ where: { id: existingScene.id } });
           }
-        } else {
-          // Existing scene update
-          await prisma.scene.update({
-            where: { id: sceneData.id },
-            data: {
-              name: sceneData.name,
-              order: sceneData.order ?? 0,
-              backgroundColor: sceneData.backgroundColor,
-            }
-          });
+        }
 
-          if (Array.isArray(sceneData.objects)) {
-            // Delete existing objects in scene and recreate to guarantee sync
-            await prisma.object.deleteMany({
-              where: { sceneId: sceneData.id }
+        // Process incoming scenes in order
+        for (let i = 0; i < scenes.length; i++) {
+          const sceneData = scenes[i];
+          const sceneOrder = sceneData.order !== undefined ? sceneData.order : i;
+          let targetSceneId = sceneData.id;
+
+          if (!targetSceneId || targetSceneId.startsWith('temp_')) {
+            // Create new scene
+            const created = await tx.scene.create({
+              data: {
+                projectId: id,
+                name: sceneData.name || `Scene ${i + 1}`,
+                order: sceneOrder,
+                backgroundColor: sceneData.backgroundColor || '#0f111a',
+              }
+            });
+            targetSceneId = created.id;
+          } else {
+            // Update existing scene
+            await tx.scene.update({
+              where: { id: targetSceneId },
+              data: {
+                name: sceneData.name || `Scene ${i + 1}`,
+                order: sceneOrder,
+                backgroundColor: sceneData.backgroundColor || '#0f111a',
+              }
             });
 
-            for (const obj of sceneData.objects) {
-              await prisma.object.create({
-                data: {
-                  sceneId: sceneData.id,
-                  name: obj.name || 'Object',
-                  type: obj.type || 'GEOMETRY',
-                  assetId: obj.assetId || null,
-                  transform: typeof obj.transform === 'string' ? obj.transform : JSON.stringify(obj.transform),
-                  properties: typeof obj.properties === 'string' ? obj.properties : JSON.stringify(obj.properties)
-                }
-              });
-            }
+            // Clear old objects before recreating to guarantee sync
+            await tx.object.deleteMany({
+              where: { sceneId: targetSceneId }
+            });
           }
-        }
-      }
-    }
 
-    const updated = await prisma.project.findUnique({
-      where: { id },
-      include: {
-        marker: true,
-        scenes: {
-          orderBy: { order: 'asc' },
-          include: {
-            objects: {
-              include: { asset: true }
-            }
+          // Create objects for this scene
+          if (Array.isArray(sceneData.objects) && sceneData.objects.length > 0) {
+            const objectsToCreate = sceneData.objects.map((obj: any) => ({
+              sceneId: targetSceneId,
+              name: obj.name || 'Object',
+              type: obj.type || 'GEOMETRY',
+              assetId: obj.assetId || null,
+              transform: typeof obj.transform === 'string' ? obj.transform : JSON.stringify(obj.transform),
+              properties: typeof obj.properties === 'string' ? obj.properties : JSON.stringify(obj.properties)
+            }));
+
+            await tx.object.createMany({
+              data: objectsToCreate
+            });
           }
         }
       }
+
+      return tx.project.findUnique({
+        where: { id },
+        include: {
+          marker: true,
+          scenes: {
+            orderBy: { order: 'asc' },
+            include: {
+              objects: {
+                include: { asset: true }
+              }
+            }
+          }
+        }
+      });
     });
 
     return NextResponse.json({ success: true, project: updated });

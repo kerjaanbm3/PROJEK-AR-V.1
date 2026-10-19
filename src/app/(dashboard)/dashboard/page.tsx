@@ -18,7 +18,13 @@ import {
   Sparkles,
   Layers,
   ArrowRight,
-  X
+  X,
+  Edit2,
+  Globe,
+  Lock,
+  LayoutTemplate,
+  CreditCard,
+  Package
 } from 'lucide-react';
 import QRCode from 'qrcode';
 
@@ -51,7 +57,15 @@ export default function DashboardPage() {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [newTitle, setNewTitle] = useState('');
   const [newMode, setNewMode] = useState<'SIMPLE' | 'DEFAULT'>('DEFAULT');
+  const [selectedTemplate, setSelectedTemplate] = useState<'DEFAULT' | 'BUSINESS_CARD' | 'PRODUCT_SHOWCASE' | 'MULTI_SLIDE'>('DEFAULT');
   const [creating, setCreating] = useState(false);
+
+  // Edit Project / Rename modal state
+  const [editProject, setEditProject] = useState<Project | null>(null);
+  const [editTitle, setEditTitle] = useState('');
+  const [editDescription, setEditDescription] = useState('');
+  const [editStatus, setEditStatus] = useState('DRAFT');
+  const [savingEdit, setSavingEdit] = useState(false);
 
   const [shareProject, setShareProject] = useState<Project | null>(null);
   const [qrDataUrl, setQrDataUrl] = useState<string>('');
@@ -87,7 +101,8 @@ export default function DashboardPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           title: newTitle.trim(),
-          mode: newMode
+          mode: newMode,
+          template: selectedTemplate
         })
       });
 
@@ -95,6 +110,7 @@ export default function DashboardPage() {
       if (res.ok && data.project) {
         setShowCreateModal(false);
         setNewTitle('');
+        setSelectedTemplate('DEFAULT');
         if (newMode === 'SIMPLE') {
           router.push(`/editor/simple/${data.project.id}`);
         } else {
@@ -108,6 +124,65 @@ export default function DashboardPage() {
       alert('Terjadi kesalahan koneksi');
     } finally {
       setCreating(false);
+    }
+  };
+
+  const handleOpenEdit = (p: Project) => {
+    setEditProject(p);
+    setEditTitle(p.title);
+    setEditDescription(p.description || '');
+    setEditStatus(p.status);
+  };
+
+  const handleSaveEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editProject || !editTitle.trim()) return;
+    setSavingEdit(true);
+    try {
+      const res = await fetch(`/api/projects/${editProject.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: editTitle.trim(),
+          description: editDescription.trim() || null,
+          status: editStatus
+        })
+      });
+      if (res.ok) {
+        setProjects((prev) =>
+          prev.map((p) =>
+            p.id === editProject.id
+              ? { ...p, title: editTitle.trim(), description: editDescription.trim() || null, status: editStatus }
+              : p
+          )
+        );
+        setEditProject(null);
+      } else {
+        alert('Gagal menyimpan perubahan');
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Terjadi kesalahan koneksi');
+    } finally {
+      setSavingEdit(false);
+    }
+  };
+
+  const handleQuickStatusChange = async (projectId: string, currentStatus: string) => {
+    const nextStatus = currentStatus === 'DRAFT' ? 'PUBLISHED' : currentStatus === 'PUBLISHED' ? 'PRIVATE' : 'DRAFT';
+    try {
+      const res = await fetch(`/api/projects/${projectId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: nextStatus })
+      });
+      if (res.ok) {
+        setProjects((prev) =>
+          prev.map((p) => (p.id === projectId ? { ...p, status: nextStatus } : p))
+        );
+      }
+    } catch (err) {
+      console.error(err);
     }
   };
 
@@ -266,14 +341,14 @@ export default function DashboardPage() {
         </div>
 
         <div style={{ display: 'flex', gap: '0.35rem', overflowX: 'auto', maxWidth: '100%' }}>
-          {['ALL', 'PUBLISHED', 'DRAFT'].map((st) => (
+          {['ALL', 'PUBLISHED', 'DRAFT', 'PRIVATE'].map((st) => (
             <button
               key={st}
               onClick={() => setFilterStatus(st)}
               className={`btn ${filterStatus === st ? 'btn-primary' : 'btn-secondary'}`}
               style={{ fontSize: '0.75rem', padding: '0.4rem 0.75rem', whiteSpace: 'nowrap' }}
             >
-              {st === 'ALL' ? 'Semua' : st === 'PUBLISHED' ? 'Terpublikasi' : 'Draft'}
+              {st === 'ALL' ? 'Semua' : st === 'PUBLISHED' ? 'Publik' : st === 'PRIVATE' ? 'Privat' : 'Draft'}
             </button>
           ))}
         </div>
@@ -340,19 +415,50 @@ export default function DashboardPage() {
                     </span>
                   </div>
 
-                  {/* Status Tag */}
+                  {/* Status Toggle Button */}
                   <div style={{ position: 'absolute', top: '0.75rem', right: '0.75rem' }}>
-                    <span className={`badge ${project.status === 'PUBLISHED' ? 'badge-published' : 'badge-draft'}`}>
-                      {project.status === 'PUBLISHED' ? 'Publik' : 'Draft'}
-                    </span>
+                    <button
+                      onClick={() => handleQuickStatusChange(project.id, project.status)}
+                      title="Klik untuk ubah status: Draft / Publik / Privat"
+                      className={`badge ${
+                        project.status === 'PUBLISHED'
+                          ? 'badge-published'
+                          : project.status === 'PRIVATE'
+                          ? 'badge-private'
+                          : 'badge-draft'
+                      }`}
+                      style={{ cursor: 'pointer', transition: 'all 0.2s', display: 'flex', alignItems: 'center', gap: '0.3rem' }}
+                    >
+                      {project.status === 'PUBLISHED' ? (
+                        <>
+                          <Globe size={11} /> Publik
+                        </>
+                      ) : project.status === 'PRIVATE' ? (
+                        <>
+                          <Lock size={11} /> Privat
+                        </>
+                      ) : (
+                        'Draft'
+                      )}
+                    </button>
                   </div>
                 </div>
 
                 {/* Card Body */}
                 <div style={{ padding: '1.25rem', flex: 1, display: 'flex', flexDirection: 'column' }}>
-                  <h3 style={{ fontSize: '1.125rem', marginBottom: '0.375rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                    {project.title}
-                  </h3>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem', marginBottom: '0.375rem' }}>
+                    <h3 style={{ fontSize: '1.125rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flex: 1 }}>
+                      {project.title}
+                    </h3>
+                    <button
+                      onClick={() => handleOpenEdit(project)}
+                      title="Ubah Nama & Pengaturan"
+                      className="btn-icon"
+                      style={{ padding: '0.2rem', color: 'var(--text-muted)' }}
+                    >
+                      <Edit2 size={14} />
+                    </button>
+                  </div>
                   <p style={{ fontSize: '0.8125rem', color: 'var(--text-secondary)', marginBottom: '1rem', lineClamp: 2, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', height: '2.4rem' }}>
                     {project.description || 'Konten interaktif 3D & AR berbasis browser.'}
                   </p>
@@ -375,6 +481,14 @@ export default function DashboardPage() {
                     >
                       Buka Editor
                     </Link>
+
+                    <button
+                      onClick={() => handleOpenEdit(project)}
+                      title="Edit Nama & Status"
+                      className="btn-icon"
+                    >
+                      <Edit2 size={15} />
+                    </button>
 
                     <button
                       onClick={() => handleOpenShare(project)}
@@ -485,6 +599,90 @@ export default function DashboardPage() {
                 </div>
               </div>
 
+              {/* Template Selection */}
+              <div className="form-group" style={{ marginBottom: '1.5rem' }}>
+                <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                  <LayoutTemplate size={14} color="var(--primary-light)" /> Pilih Template Awal
+                </label>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.65rem', marginTop: '0.4rem' }}>
+                  <div
+                    onClick={() => setSelectedTemplate('DEFAULT')}
+                    style={{
+                      padding: '0.875rem',
+                      borderRadius: 'var(--radius-md)',
+                      background: selectedTemplate === 'DEFAULT' ? 'rgba(99, 102, 241, 0.15)' : 'rgba(255, 255, 255, 0.03)',
+                      border: selectedTemplate === 'DEFAULT' ? '1px solid var(--primary)' : '1px solid var(--border-subtle)',
+                      cursor: 'pointer',
+                      transition: 'all var(--transition-fast)'
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', color: 'var(--primary-light)', fontWeight: 700, fontSize: '0.8125rem', marginBottom: '0.2rem' }}>
+                      <Box size={14} /> Proyek Kosong
+                    </div>
+                    <p style={{ fontSize: '0.6875rem', color: 'var(--text-secondary)', lineHeight: 1.35 }}>
+                      Kanvas 3D kosong untuk mulai berkarya dari nol.
+                    </p>
+                  </div>
+
+                  <div
+                    onClick={() => setSelectedTemplate('BUSINESS_CARD')}
+                    style={{
+                      padding: '0.875rem',
+                      borderRadius: 'var(--radius-md)',
+                      background: selectedTemplate === 'BUSINESS_CARD' ? 'rgba(6, 182, 212, 0.15)' : 'rgba(255, 255, 255, 0.03)',
+                      border: selectedTemplate === 'BUSINESS_CARD' ? '1px solid var(--accent)' : '1px solid var(--border-subtle)',
+                      cursor: 'pointer',
+                      transition: 'all var(--transition-fast)'
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', color: 'var(--accent-light)', fontWeight: 700, fontSize: '0.8125rem', marginBottom: '0.2rem' }}>
+                      <CreditCard size={14} /> Kartu Nama AR
+                    </div>
+                    <p style={{ fontSize: '0.6875rem', color: 'var(--text-secondary)', lineHeight: 1.35 }}>
+                      Profil profesional, teks 3D & tombol link interaktif.
+                    </p>
+                  </div>
+
+                  <div
+                    onClick={() => setSelectedTemplate('PRODUCT_SHOWCASE')}
+                    style={{
+                      padding: '0.875rem',
+                      borderRadius: 'var(--radius-md)',
+                      background: selectedTemplate === 'PRODUCT_SHOWCASE' ? 'rgba(16, 185, 129, 0.15)' : 'rgba(255, 255, 255, 0.03)',
+                      border: selectedTemplate === 'PRODUCT_SHOWCASE' ? '1px solid #10b981' : '1px solid var(--border-subtle)',
+                      cursor: 'pointer',
+                      transition: 'all var(--transition-fast)'
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', color: '#34d399', fontWeight: 700, fontSize: '0.8125rem', marginBottom: '0.2rem' }}>
+                      <Package size={14} /> Showcase Produk
+                    </div>
+                    <p style={{ fontSize: '0.6875rem', color: 'var(--text-secondary)', lineHeight: 1.35 }}>
+                      Etalase 3D dengan animasi putar & teks info spesifikasi.
+                    </p>
+                  </div>
+
+                  <div
+                    onClick={() => setSelectedTemplate('MULTI_SLIDE')}
+                    style={{
+                      padding: '0.875rem',
+                      borderRadius: 'var(--radius-md)',
+                      background: selectedTemplate === 'MULTI_SLIDE' ? 'rgba(236, 72, 153, 0.15)' : 'rgba(255, 255, 255, 0.03)',
+                      border: selectedTemplate === 'MULTI_SLIDE' ? '1px solid #ec4899' : '1px solid var(--border-subtle)',
+                      cursor: 'pointer',
+                      transition: 'all var(--transition-fast)'
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', color: '#f472b6', fontWeight: 700, fontSize: '0.8125rem', marginBottom: '0.2rem' }}>
+                      <Layers size={14} /> Multi-Slide AR
+                    </div>
+                    <p style={{ fontSize: '0.6875rem', color: 'var(--text-secondary)', lineHeight: 1.35 }}>
+                      Presentasi 3 slide berurutan dengan tombol navigasi.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
                 <button
                   type="button"
@@ -499,6 +697,98 @@ export default function DashboardPage() {
                   className="btn btn-primary"
                 >
                   {creating ? 'Membuat...' : 'Mulai Desain'} <ArrowRight size={16} />
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Edit / Rename Project Modal */}
+      {editProject && (
+        <div className="modal-overlay">
+          <div className="glass-panel modal-dialog" style={{ padding: '1.5rem', maxWidth: '480px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.25rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <Edit2 size={18} color="var(--primary-light)" />
+                <h2 style={{ fontSize: '1.25rem' }}>Pengaturan Proyek</h2>
+              </div>
+              <button onClick={() => setEditProject(null)} className="btn-icon">
+                <X size={18} />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveEdit}>
+              <div className="form-group">
+                <label className="form-label">Nama / Judul Proyek</label>
+                <input
+                  type="text"
+                  required
+                  value={editTitle}
+                  onChange={(e) => setEditTitle(e.target.value)}
+                  className="form-input"
+                  placeholder="Nama proyek..."
+                />
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">Deskripsi (Opsional)</label>
+                <textarea
+                  value={editDescription}
+                  onChange={(e) => setEditDescription(e.target.value)}
+                  className="form-input"
+                  rows={3}
+                  placeholder="Keterangan singkat tentang proyek ini..."
+                  style={{ resize: 'vertical' }}
+                />
+              </div>
+
+              <div className="form-group" style={{ marginBottom: '1.5rem' }}>
+                <label className="form-label">Status Akses</label>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.5rem', marginTop: '0.35rem' }}>
+                  {[
+                    { id: 'DRAFT', label: 'Draft', desc: 'Hanya di editor' },
+                    { id: 'PUBLISHED', label: 'Publik', desc: 'Bisa dilihat semua' },
+                    { id: 'PRIVATE', label: 'Privat', desc: 'Akses terbatas' }
+                  ].map((s) => (
+                    <div
+                      key={s.id}
+                      onClick={() => setEditStatus(s.id)}
+                      style={{
+                        padding: '0.65rem 0.5rem',
+                        borderRadius: 'var(--radius-md)',
+                        textAlign: 'center',
+                        cursor: 'pointer',
+                        background: editStatus === s.id ? 'rgba(99, 102, 241, 0.2)' : 'rgba(255, 255, 255, 0.03)',
+                        border: editStatus === s.id ? '1px solid var(--primary)' : '1px solid var(--border-subtle)',
+                        transition: 'all var(--transition-fast)'
+                      }}
+                    >
+                      <div style={{ fontSize: '0.8125rem', fontWeight: 700, color: editStatus === s.id ? '#ffffff' : 'var(--text-secondary)' }}>
+                        {s.label}
+                      </div>
+                      <div style={{ fontSize: '0.625rem', color: 'var(--text-muted)', marginTop: '0.15rem' }}>
+                        {s.desc}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
+                <button
+                  type="button"
+                  onClick={() => setEditProject(null)}
+                  className="btn btn-secondary"
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingEdit || !editTitle.trim()}
+                  className="btn btn-primary"
+                >
+                  {savingEdit ? 'Menyimpan...' : 'Simpan Perubahan'}
                 </button>
               </div>
             </form>

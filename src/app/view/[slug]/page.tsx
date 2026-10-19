@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import * as THREE from 'three';
@@ -31,7 +31,11 @@ import {
   Target,
   CheckCircle2,
   Eye,
-  Compass
+  Compass,
+  ChevronLeft,
+  ChevronRight,
+  Volume2,
+  Video
 } from 'lucide-react';
 import QRCode from 'qrcode';
 
@@ -40,6 +44,7 @@ export default function PublicViewerPage() {
   const slug = params?.slug as string;
 
   const [project, setProject] = useState<any>(null);
+  const [currentSceneIndex, setCurrentSceneIndex] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -81,6 +86,7 @@ export default function PublicViewerPage() {
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
   const controlsRef = useRef<OrbitControls | null>(null);
   const modelGroupRef = useRef<THREE.Group | null>(null);
+  const mindarAnchorGroupRef = useRef<THREE.Group | null>(null);
 
   // Touch tracking for AR mode
   const touchStartRef = useRef<{ x: number; y: number; dist?: number; angle?: number } | null>(null);
@@ -110,6 +116,217 @@ export default function PublicViewerPage() {
     if (slug) loadProject();
   }, [slug]);
 
+  // Reusable helper to build scene 3D objects into a group (shared between OrbitControls and MindAR Anchor)
+  const buildObjectsIntoGroup = useCallback((targetGroup: THREE.Group, sceneObjects: any[]) => {
+    sceneObjects.forEach((obj: any) => {
+      const transform = typeof obj.transform === 'string' ? JSON.parse(obj.transform) : obj.transform;
+      const properties = typeof obj.properties === 'string' ? JSON.parse(obj.properties) : obj.properties;
+      const trigger = typeof obj.trigger === 'string' ? JSON.parse(obj.trigger) : obj.trigger;
+      const animation = typeof obj.animation === 'string' ? JSON.parse(obj.animation) : obj.animation;
+
+      const color = properties?.color || '#6366f1';
+      const roughness = properties?.roughness ?? 0.3;
+      const metalness = properties?.metalness ?? 0.7;
+      const wireframe = properties?.wireframe ?? false;
+
+      const mat = new THREE.MeshStandardMaterial({
+        color: new THREE.Color(color),
+        roughness,
+        metalness,
+        wireframe
+      });
+
+      let createdMesh: THREE.Object3D | null = null;
+
+      if (obj.type === 'GEOMETRY') {
+        let geo: THREE.BufferGeometry;
+        switch (properties?.geometry) {
+          case 'sphere':
+            geo = new THREE.SphereGeometry(0.6, 32, 32);
+            break;
+          case 'cylinder':
+            geo = new THREE.CylinderGeometry(0.5, 0.5, 1, 32);
+            break;
+          case 'torus':
+            geo = new THREE.TorusGeometry(0.5, 0.2, 24, 48);
+            break;
+          case 'cone':
+            geo = new THREE.ConeGeometry(0.6, 1.2, 32);
+            break;
+          default:
+            geo = new THREE.BoxGeometry(1, 1, 1);
+            break;
+        }
+        const mesh = new THREE.Mesh(geo, mat);
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+        createdMesh = mesh;
+      } else if (obj.type === '3D_MODEL' && obj.asset?.fileUrl) {
+        const loader = new GLTFLoader();
+        loader.load(
+          obj.asset.fileUrl,
+          (gltf) => {
+            const m = gltf.scene;
+            const pos = transform?.position || [0, 0, 0];
+            const rot = transform?.rotation || [0, 0, 0];
+            const scl = transform?.scale || [1, 1, 1];
+            m.position.set(pos[0], pos[1], pos[2]);
+            m.rotation.set(rot[0], rot[1], rot[2]);
+            m.scale.set(scl[0], scl[1], scl[2]);
+
+            m.userData = {
+              trigger,
+              animation,
+              basePos: m.position.clone(),
+              baseRot: m.rotation.clone(),
+              baseScale: m.scale.clone(),
+              type: '3D_MODEL'
+            };
+            targetGroup.add(m);
+          },
+          undefined,
+          () => {
+            const fallback = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), mat);
+            const pos = transform?.position || [0, 0.5, 0];
+            fallback.position.set(pos[0], pos[1], pos[2]);
+            fallback.userData = {
+              trigger,
+              animation,
+              basePos: fallback.position.clone(),
+              baseRot: fallback.rotation.clone(),
+              baseScale: fallback.scale.clone(),
+              type: '3D_MODEL'
+            };
+            targetGroup.add(fallback);
+          }
+        );
+        return;
+      } else if (obj.type === 'TEXT_3D') {
+        const text = properties?.text || 'AR BM3';
+        const canvas = document.createElement('canvas');
+        canvas.width = 512;
+        canvas.height = 256;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.fillStyle = 'rgba(15, 20, 35, 0.85)';
+          ctx.roundRect ? ctx.roundRect(10, 10, 492, 236, 24) : ctx.fillRect(10, 10, 492, 236);
+          ctx.fill();
+          ctx.strokeStyle = color;
+          ctx.lineWidth = 6;
+          ctx.stroke();
+
+          ctx.font = 'bold 50px sans-serif';
+          ctx.fillStyle = '#ffffff';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(text, 256, 128);
+        }
+        const texture = new THREE.CanvasTexture(canvas);
+        const textMat = new THREE.MeshBasicMaterial({ map: texture, transparent: true, side: THREE.DoubleSide });
+        createdMesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 1), textMat);
+      } else if (obj.type === 'IMAGE' && obj.asset?.fileUrl) {
+        const isGif = obj.asset.fileUrl.toLowerCase().endsWith('.gif') || obj.asset.mimeType === 'image/gif';
+        const planeGeo = new THREE.PlaneGeometry(2, 2);
+
+        if (isGif) {
+          const gifImg = new Image();
+          gifImg.crossOrigin = 'anonymous';
+          gifImg.src = obj.asset.fileUrl;
+
+          const gifCanvas = document.createElement('canvas');
+          gifCanvas.width = 512;
+          gifCanvas.height = 512;
+          const gifCtx = gifCanvas.getContext('2d');
+
+          const gifTexture = new THREE.CanvasTexture(gifCanvas);
+          gifTexture.colorSpace = THREE.SRGBColorSpace;
+
+          const imgMat = new THREE.MeshBasicMaterial({
+            map: gifTexture,
+            transparent: true,
+            side: THREE.DoubleSide
+          });
+
+          const planeMesh = new THREE.Mesh(planeGeo, imgMat);
+          planeMesh.userData = { isGif: true, gifImg, gifCanvas, gifCtx, gifTexture };
+          createdMesh = planeMesh;
+        } else {
+          const textureLoader = new THREE.TextureLoader();
+          const planeMesh = new THREE.Mesh(planeGeo, new THREE.MeshBasicMaterial({ transparent: true, side: THREE.DoubleSide }));
+          textureLoader.load(obj.asset.fileUrl, (tex) => {
+            tex.colorSpace = THREE.SRGBColorSpace;
+            if (tex.image && tex.image.width && tex.image.height) {
+              const aspect = tex.image.width / tex.image.height;
+              planeMesh.scale.x *= aspect;
+            }
+            planeMesh.material = new THREE.MeshBasicMaterial({ map: tex, transparent: true, side: THREE.DoubleSide });
+          });
+          createdMesh = planeMesh;
+        }
+      } else if (obj.type === 'VIDEO' && obj.asset?.fileUrl) {
+        const video = document.createElement('video');
+        video.src = obj.asset.fileUrl;
+        video.crossOrigin = 'anonymous';
+        video.loop = true;
+        video.muted = true;
+        video.playsInline = true;
+        video.autoplay = true;
+        video.play().catch(() => {});
+
+        const videoTexture = new THREE.VideoTexture(video);
+        videoTexture.colorSpace = THREE.SRGBColorSpace;
+        const videoMat = new THREE.MeshBasicMaterial({ map: videoTexture, side: THREE.DoubleSide });
+        const videoMesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 1.2), videoMat);
+        videoMesh.userData = { videoElement: video, type: 'VIDEO' };
+        createdMesh = videoMesh;
+      } else if (obj.type === 'AUDIO' && obj.asset?.fileUrl) {
+        const audio = new Audio(obj.asset.fileUrl);
+        audio.loop = true;
+
+        const audioGroup = new THREE.Group();
+        const sphereGeo = new THREE.SphereGeometry(0.35, 24, 24);
+        const sphereMat = new THREE.MeshStandardMaterial({
+          color: new THREE.Color(color || '#06b6d4'),
+          emissive: new THREE.Color(color || '#06b6d4'),
+          emissiveIntensity: 0.35,
+          metalness: 0.8,
+          roughness: 0.2
+        });
+        const sphere = new THREE.Mesh(sphereGeo, sphereMat);
+        audioGroup.add(sphere);
+
+        const ringGeo = new THREE.TorusGeometry(0.5, 0.04, 16, 32);
+        const ringMat = new THREE.MeshBasicMaterial({ color: new THREE.Color('#38bdf8'), wireframe: true });
+        const ring = new THREE.Mesh(ringGeo, ringMat);
+        ring.rotation.x = Math.PI / 2;
+        audioGroup.add(ring);
+
+        audioGroup.userData = { audioElement: audio, type: 'AUDIO' };
+        createdMesh = audioGroup;
+      }
+
+      if (createdMesh) {
+        const pos = transform?.position || [0, 0.5, 0];
+        const rot = transform?.rotation || [0, 0, 0];
+        const scl = transform?.scale || [1, 1, 1];
+        createdMesh.position.set(pos[0], pos[1], pos[2]);
+        createdMesh.rotation.set(rot[0], rot[1], rot[2]);
+        createdMesh.scale.set(scl[0], scl[1], scl[2]);
+
+        createdMesh.userData = {
+          ...createdMesh.userData,
+          trigger,
+          animation,
+          basePos: createdMesh.position.clone(),
+          baseRot: createdMesh.rotation.clone(),
+          baseScale: createdMesh.scale.clone(),
+          type: createdMesh.userData?.type || obj.type
+        };
+        targetGroup.add(createdMesh);
+      }
+    });
+  }, []);
+
   // Setup 3D Scene
   useEffect(() => {
     const mount = canvasMountRef.current;
@@ -119,7 +336,7 @@ export default function PublicViewerPage() {
     const scene = new THREE.Scene();
     sceneRef.current = scene;
 
-    const currentScene = project.scenes?.[0];
+    const currentScene = project.scenes?.[currentSceneIndex] || project.scenes?.[0];
     const bgColor = currentScene?.backgroundColor || '#0f111a';
     if (viewerMode === '3D') {
       scene.background = new THREE.Color(bgColor);
@@ -174,168 +391,83 @@ export default function PublicViewerPage() {
       scene.add(grid);
     }
 
-    // 6. Build Model Group from Project Scene Objects
+    // 6. Build Model Group from Active Scene Objects
     const modelGroup = new THREE.Group();
     modelGroupRef.current = modelGroup;
     scene.add(modelGroup);
 
-    const sceneObjects = currentScene?.objects || [];
-    sceneObjects.forEach((obj: any) => {
-      const transform = typeof obj.transform === 'string' ? JSON.parse(obj.transform) : obj.transform;
-      const properties = typeof obj.properties === 'string' ? JSON.parse(obj.properties) : obj.properties;
+    const activeScene = project.scenes?.[currentSceneIndex] || project.scenes?.[0];
+    buildObjectsIntoGroup(modelGroup, activeScene?.objects || []);
 
-      const color = properties?.color || '#6366f1';
-      const roughness = properties?.roughness ?? 0.3;
-      const metalness = properties?.metalness ?? 0.7;
-      const wireframe = properties?.wireframe ?? false;
+    // 7. Raycaster for Interactive Clicks & Triggers
+    const raycaster = new THREE.Raycaster();
+    const mouse = new THREE.Vector2();
 
-      const mat = new THREE.MeshStandardMaterial({
-        color: new THREE.Color(color),
-        roughness,
-        metalness,
-        wireframe
-      });
+    const handlePointerDown = (e: MouseEvent | TouchEvent) => {
+      if (!renderer.domElement) return;
+      const rect = renderer.domElement.getBoundingClientRect();
+      const clientX = 'touches' in e && e.touches.length > 0 ? e.touches[0].clientX : (e as MouseEvent).clientX;
+      const clientY = 'touches' in e && e.touches.length > 0 ? e.touches[0].clientY : (e as MouseEvent).clientY;
 
-      if (obj.type === 'GEOMETRY') {
-        let geo: THREE.BufferGeometry;
-        switch (properties?.geometry) {
-          case 'sphere':
-            geo = new THREE.SphereGeometry(0.6, 32, 32);
-            break;
-          case 'cylinder':
-            geo = new THREE.CylinderGeometry(0.5, 0.5, 1, 32);
-            break;
-          case 'torus':
-            geo = new THREE.TorusGeometry(0.5, 0.2, 24, 48);
-            break;
-          case 'cone':
-            geo = new THREE.ConeGeometry(0.6, 1.2, 32);
-            break;
-          default:
-            geo = new THREE.BoxGeometry(1, 1, 1);
-            break;
-        }
-        const pos = transform?.position || [0, 0.5, 0];
-        const rot = transform?.rotation || [0, 0, 0];
-        const scl = transform?.scale || [1, 1, 1];
-        const mesh = new THREE.Mesh(geo, mat);
-        mesh.castShadow = true;
-        mesh.receiveShadow = true;
-        mesh.position.set(pos[0], pos[1], pos[2]);
-        mesh.rotation.set(rot[0], rot[1], rot[2]);
-        mesh.scale.set(scl[0], scl[1], scl[2]);
-        modelGroup.add(mesh);
-      } else if (obj.type === '3D_MODEL' && obj.asset?.fileUrl) {
-        const loader = new GLTFLoader();
-        loader.load(
-          obj.asset.fileUrl,
-          (gltf) => {
-            const m = gltf.scene;
-            const pos = transform?.position || [0, 0, 0];
-            const rot = transform?.rotation || [0, 0, 0];
-            const scl = transform?.scale || [1, 1, 1];
-            m.position.set(pos[0], pos[1], pos[2]);
-            m.rotation.set(rot[0], rot[1], rot[2]);
-            m.scale.set(scl[0], scl[1], scl[2]);
-            modelGroup.add(m);
-          },
-          undefined,
-          () => {
-            const fallback = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), mat);
-            const pos = transform?.position || [0, 0.5, 0];
-            fallback.position.set(pos[0], pos[1], pos[2]);
-            modelGroup.add(fallback);
-          }
-        );
-      } else if (obj.type === 'TEXT_3D') {
-        const text = properties?.text || 'AR BM3';
-        const canvas = document.createElement('canvas');
-        canvas.width = 512;
-        canvas.height = 256;
-        const ctx = canvas.getContext('2d');
-        if (ctx) {
-          ctx.fillStyle = 'rgba(15, 20, 35, 0.85)';
-          ctx.roundRect ? ctx.roundRect(10, 10, 492, 236, 24) : ctx.fillRect(10, 10, 492, 236);
-          ctx.fill();
-          ctx.strokeStyle = color;
-          ctx.lineWidth = 6;
-          ctx.stroke();
+      mouse.x = ((clientX - rect.left) / rect.width) * 2 - 1;
+      mouse.y = -((clientY - rect.top) / rect.height) * 2 + 1;
 
-          ctx.font = 'bold 50px sans-serif';
-          ctx.fillStyle = '#ffffff';
-          ctx.textAlign = 'center';
-          ctx.textBaseline = 'middle';
-          ctx.fillText(text, 256, 128);
-        }
-        const texture = new THREE.CanvasTexture(canvas);
-        const textMat = new THREE.MeshBasicMaterial({ map: texture, transparent: true, side: THREE.DoubleSide });
-        const textMesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 1), textMat);
-        const pos = transform?.position || [0, 1.2, 0];
-        const rot = transform?.rotation || [0, 0, 0];
-        const scl = transform?.scale || [1, 1, 1];
-        textMesh.position.set(pos[0], pos[1], pos[2]);
-        textMesh.rotation.set(rot[0], rot[1], rot[2]);
-        textMesh.scale.set(scl[0], scl[1], scl[2]);
-        modelGroup.add(textMesh);
-      } else if (obj.type === 'IMAGE' && obj.asset?.fileUrl) {
-        const isGif = obj.asset.fileUrl.toLowerCase().endsWith('.gif') || obj.asset.mimeType === 'image/gif';
-        const planeGeo = new THREE.PlaneGeometry(2, 2);
+      raycaster.setFromCamera(mouse, camera);
 
-        if (isGif) {
-          const gifImg = new Image();
-          gifImg.crossOrigin = 'anonymous';
-          gifImg.src = obj.asset.fileUrl;
+      const targets: THREE.Object3D[] = [];
+      if (modelGroupRef.current) targets.push(modelGroupRef.current);
+      if (mindarAnchorGroupRef.current) targets.push(mindarAnchorGroupRef.current);
 
-          const gifCanvas = document.createElement('canvas');
-          gifCanvas.width = 512;
-          gifCanvas.height = 512;
-          const gifCtx = gifCanvas.getContext('2d');
-
-          const gifTexture = new THREE.CanvasTexture(gifCanvas);
-          gifTexture.colorSpace = THREE.SRGBColorSpace;
-
-          const imgMat = new THREE.MeshBasicMaterial({
-            map: gifTexture,
-            transparent: true,
-            side: THREE.DoubleSide
-          });
-
-          const planeMesh = new THREE.Mesh(planeGeo, imgMat);
-          planeMesh.userData = { isGif: true, gifImg, gifCanvas, gifCtx, gifTexture };
-          const pos = transform?.position || [0, 1, 0];
-          const rot = transform?.rotation || [0, 0, 0];
-          const scl = transform?.scale || [1, 1, 1];
-          planeMesh.position.set(pos[0], pos[1], pos[2]);
-          planeMesh.rotation.set(rot[0], rot[1], rot[2]);
-          planeMesh.scale.set(scl[0], scl[1], scl[2]);
-          modelGroup.add(planeMesh);
-        } else {
-          const textureLoader = new THREE.TextureLoader();
-          const texture = textureLoader.load(obj.asset.fileUrl, (tex) => {
-            tex.colorSpace = THREE.SRGBColorSpace;
-            if (tex.image && tex.image.width && tex.image.height) {
-              const aspect = tex.image.width / tex.image.height;
-              planeMesh.scale.set(scl[0] * aspect, scl[1], scl[2]);
+      const intersects = raycaster.intersectObjects(targets, true);
+      if (intersects.length > 0) {
+        let curr: THREE.Object3D | null = intersects[0].object;
+        while (curr && curr !== scene) {
+          if (curr.userData) {
+            const trig = curr.userData.trigger;
+            if (trig && trig.type && trig.type !== 'NONE') {
+              if (trig.type === 'OPEN_URL' && trig.targetUrl) {
+                window.open(trig.targetUrl, '_blank');
+                return;
+              } else if (trig.type === 'SWITCH_SCENE' && trig.targetSceneIndex !== undefined) {
+                setCurrentSceneIndex(Number(trig.targetSceneIndex));
+                return;
+              } else if (trig.type === 'TOGGLE_AUDIO' && curr.userData.audioElement) {
+                const aud = curr.userData.audioElement as HTMLAudioElement;
+                if (aud.paused) {
+                  aud.play().catch(() => {});
+                } else {
+                  aud.pause();
+                }
+                return;
+              }
             }
-          });
-          texture.colorSpace = THREE.SRGBColorSpace;
 
-          const imgMat = new THREE.MeshBasicMaterial({
-            map: texture,
-            transparent: true,
-            side: THREE.DoubleSide
-          });
-          const planeMesh = new THREE.Mesh(planeGeo, imgMat);
-          const pos = transform?.position || [0, 1, 0];
-          const rot = transform?.rotation || [0, 0, 0];
-          const scl = transform?.scale || [1, 1, 1];
-          planeMesh.position.set(pos[0], pos[1], pos[2]);
-          planeMesh.rotation.set(rot[0], rot[1], rot[2]);
-          planeMesh.scale.set(scl[0], scl[1], scl[2]);
-          modelGroup.add(planeMesh);
+            if (curr.userData.type === 'VIDEO' && curr.userData.videoElement) {
+              const vid = curr.userData.videoElement as HTMLVideoElement;
+              if (vid.paused) {
+                vid.play().catch(() => {});
+              } else {
+                vid.pause();
+              }
+              return;
+            }
+
+            if (curr.userData.type === 'AUDIO' && curr.userData.audioElement) {
+              const aud = curr.userData.audioElement as HTMLAudioElement;
+              if (aud.paused) {
+                aud.play().catch(() => {});
+              } else {
+                aud.pause();
+              }
+              return;
+            }
+          }
+          curr = curr.parent;
         }
       }
-    });
+    };
+
+    renderer.domElement.addEventListener('pointerdown', handlePointerDown);
 
     // Resize
     const handleResize = () => {
@@ -346,17 +478,38 @@ export default function PublicViewerPage() {
     };
     window.addEventListener('resize', handleResize);
 
-    // Animation Loop
+    // Animation Loop with Continuous Animations and GIFs
     let animId: number;
+    const clock = new THREE.Clock();
+
     const animate = () => {
       animId = requestAnimationFrame(animate);
       if (viewerMode === '3D') {
         controls.update();
       }
 
-      // Update animated GIFs in viewer
-      if (modelGroupRef.current) {
-        modelGroupRef.current.traverse((child) => {
+      const time = clock.getElapsedTime();
+
+      const updateGroupAnimations = (grp: THREE.Group | null) => {
+        if (!grp) return;
+        grp.traverse((child) => {
+          if (child.userData?.animation && child.userData.animation.type !== 'NONE') {
+            const anim = child.userData.animation;
+            const spd = Number(anim.speed) || 1.0;
+            const bp = child.userData.basePos;
+            const br = child.userData.baseRot;
+            const bs = child.userData.baseScale;
+
+            if (anim.type === 'SPIN' && br) {
+              child.rotation.y = br.y + time * spd * 2;
+            } else if (anim.type === 'BOUNCE' && bp) {
+              child.position.y = bp.y + Math.abs(Math.sin(time * spd * 3)) * 0.35;
+            } else if (anim.type === 'PULSE' && bs) {
+              const factor = 1 + Math.sin(time * spd * 4) * 0.15;
+              child.scale.set(bs.x * factor, bs.y * factor, bs.z * factor);
+            }
+          }
+
           if (child.userData?.isGif && child.userData.gifImg?.complete) {
             const { gifImg, gifCanvas, gifCtx, gifTexture } = child.userData;
             if (gifCtx && gifImg.naturalWidth > 0) {
@@ -366,7 +519,10 @@ export default function PublicViewerPage() {
             }
           }
         });
-      }
+      };
+
+      updateGroupAnimations(modelGroupRef.current);
+      updateGroupAnimations(mindarAnchorGroupRef.current);
 
       renderer.render(scene, camera);
     };
@@ -375,13 +531,14 @@ export default function PublicViewerPage() {
     return () => {
       cancelAnimationFrame(animId);
       window.removeEventListener('resize', handleResize);
+      renderer.domElement.removeEventListener('pointerdown', handlePointerDown);
       controls.dispose();
       renderer.dispose();
       if (mount.contains(renderer.domElement)) {
         mount.removeChild(renderer.domElement);
       }
     };
-  }, [project, viewerMode]);
+  }, [project, viewerMode, buildObjectsIntoGroup]);
 
   // Toggle Auto-Rotate in 3D Mode
   useEffect(() => {
@@ -398,165 +555,30 @@ export default function PublicViewerPage() {
     }
   }, [arScale, arRotationY, viewerMode]);
 
-  // Reusable helper to build scene 3D objects into a group (shared between OrbitControls and MindAR Anchor)
-  const buildObjectsIntoGroup = (targetGroup: THREE.Group, sceneObjects: any[]) => {
-    sceneObjects.forEach((obj: any) => {
-      const transform = typeof obj.transform === 'string' ? JSON.parse(obj.transform) : obj.transform;
-      const properties = typeof obj.properties === 'string' ? JSON.parse(obj.properties) : obj.properties;
+  // Dynamic Multi-Scene Switcher (Sync objects into 3D and AR Anchor when slide changes)
+  useEffect(() => {
+    if (!project || !project.scenes) return;
+    const currentScene = project.scenes[currentSceneIndex] || project.scenes[0];
+    if (!currentScene) return;
 
-      const color = properties?.color || '#6366f1';
-      const roughness = properties?.roughness ?? 0.3;
-      const metalness = properties?.metalness ?? 0.7;
-      const wireframe = properties?.wireframe ?? false;
+    if (viewerMode === '3D' && sceneRef.current) {
+      sceneRef.current.background = new THREE.Color(currentScene.backgroundColor || '#0f111a');
+    }
 
-      const mat = new THREE.MeshStandardMaterial({
-        color: new THREE.Color(color),
-        roughness,
-        metalness,
-        wireframe
-      });
-
-      if (obj.type === 'GEOMETRY') {
-        let geo: THREE.BufferGeometry;
-        switch (properties?.geometry) {
-          case 'sphere':
-            geo = new THREE.SphereGeometry(0.6, 32, 32);
-            break;
-          case 'cylinder':
-            geo = new THREE.CylinderGeometry(0.5, 0.5, 1, 32);
-            break;
-          case 'torus':
-            geo = new THREE.TorusGeometry(0.5, 0.2, 24, 48);
-            break;
-          case 'cone':
-            geo = new THREE.ConeGeometry(0.6, 1.2, 32);
-            break;
-          default:
-            geo = new THREE.BoxGeometry(1, 1, 1);
-            break;
-        }
-        const pos = transform?.position || [0, 0.5, 0];
-        const rot = transform?.rotation || [0, 0, 0];
-        const scl = transform?.scale || [1, 1, 1];
-        const mesh = new THREE.Mesh(geo, mat);
-        mesh.castShadow = true;
-        mesh.receiveShadow = true;
-        mesh.position.set(pos[0], pos[1], pos[2]);
-        mesh.rotation.set(rot[0], rot[1], rot[2]);
-        mesh.scale.set(scl[0], scl[1], scl[2]);
-        targetGroup.add(mesh);
-      } else if (obj.type === '3D_MODEL' && obj.asset?.fileUrl) {
-        const loader = new GLTFLoader();
-        loader.load(
-          obj.asset.fileUrl,
-          (gltf) => {
-            const m = gltf.scene;
-            const pos = transform?.position || [0, 0, 0];
-            const rot = transform?.rotation || [0, 0, 0];
-            const scl = transform?.scale || [1, 1, 1];
-            m.position.set(pos[0], pos[1], pos[2]);
-            m.rotation.set(rot[0], rot[1], rot[2]);
-            m.scale.set(scl[0], scl[1], scl[2]);
-            targetGroup.add(m);
-          },
-          undefined,
-          () => {
-            const fallback = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), mat);
-            const pos = transform?.position || [0, 0.5, 0];
-            fallback.position.set(pos[0], pos[1], pos[2]);
-            targetGroup.add(fallback);
-          }
-        );
-      } else if (obj.type === 'TEXT_3D') {
-        const text = properties?.text || 'AR BM3';
-        const canvas = document.createElement('canvas');
-        canvas.width = 512;
-        canvas.height = 256;
-        const ctx = canvas.getContext('2d');
-        if (ctx) {
-          ctx.fillStyle = 'rgba(15, 20, 35, 0.85)';
-          ctx.roundRect ? ctx.roundRect(10, 10, 492, 236, 24) : ctx.fillRect(10, 10, 492, 236);
-          ctx.fill();
-          ctx.strokeStyle = color;
-          ctx.lineWidth = 6;
-          ctx.stroke();
-
-          ctx.font = 'bold 50px sans-serif';
-          ctx.fillStyle = '#ffffff';
-          ctx.textAlign = 'center';
-          ctx.textBaseline = 'middle';
-          ctx.fillText(text, 256, 128);
-        }
-        const texture = new THREE.CanvasTexture(canvas);
-        const textMat = new THREE.MeshBasicMaterial({ map: texture, transparent: true, side: THREE.DoubleSide });
-        const textMesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 1), textMat);
-        const pos = transform?.position || [0, 1.2, 0];
-        const rot = transform?.rotation || [0, 0, 0];
-        const scl = transform?.scale || [1, 1, 1];
-        textMesh.position.set(pos[0], pos[1], pos[2]);
-        textMesh.rotation.set(rot[0], rot[1], rot[2]);
-        textMesh.scale.set(scl[0], scl[1], scl[2]);
-        targetGroup.add(textMesh);
-      } else if (obj.type === 'IMAGE' && obj.asset?.fileUrl) {
-        const isGif = obj.asset.fileUrl.toLowerCase().endsWith('.gif') || obj.asset.mimeType === 'image/gif';
-        const planeGeo = new THREE.PlaneGeometry(2, 2);
-
-        if (isGif) {
-          const gifImg = new Image();
-          gifImg.crossOrigin = 'anonymous';
-          gifImg.src = obj.asset.fileUrl;
-
-          const gifCanvas = document.createElement('canvas');
-          gifCanvas.width = 512;
-          gifCanvas.height = 512;
-          const gifCtx = gifCanvas.getContext('2d');
-
-          const gifTexture = new THREE.CanvasTexture(gifCanvas);
-          gifTexture.colorSpace = THREE.SRGBColorSpace;
-
-          const imgMat = new THREE.MeshBasicMaterial({
-            map: gifTexture,
-            transparent: true,
-            side: THREE.DoubleSide
-          });
-
-          const planeMesh = new THREE.Mesh(planeGeo, imgMat);
-          planeMesh.userData = { isGif: true, gifImg, gifCanvas, gifCtx, gifTexture };
-          const pos = transform?.position || [0, 1, 0];
-          const rot = transform?.rotation || [0, 0, 0];
-          const scl = transform?.scale || [1, 1, 1];
-          planeMesh.position.set(pos[0], pos[1], pos[2]);
-          planeMesh.rotation.set(rot[0], rot[1], rot[2]);
-          planeMesh.scale.set(scl[0], scl[1], scl[2]);
-          targetGroup.add(planeMesh);
-        } else {
-          const textureLoader = new THREE.TextureLoader();
-          const texture = textureLoader.load(obj.asset.fileUrl, (tex) => {
-            tex.colorSpace = THREE.SRGBColorSpace;
-            if (tex.image && tex.image.width && tex.image.height) {
-              const aspect = tex.image.width / tex.image.height;
-              planeMesh.scale.set(scl[0] * aspect, scl[1], scl[2]);
-            }
-          });
-          texture.colorSpace = THREE.SRGBColorSpace;
-
-          const imgMat = new THREE.MeshBasicMaterial({
-            map: texture,
-            transparent: true,
-            side: THREE.DoubleSide
-          });
-          const planeMesh = new THREE.Mesh(planeGeo, imgMat);
-          const pos = transform?.position || [0, 1, 0];
-          const rot = transform?.rotation || [0, 0, 0];
-          const scl = transform?.scale || [1, 1, 1];
-          planeMesh.position.set(pos[0], pos[1], pos[2]);
-          planeMesh.rotation.set(rot[0], rot[1], rot[2]);
-          planeMesh.scale.set(scl[0], scl[1], scl[2]);
-          targetGroup.add(planeMesh);
-        }
+    if (modelGroupRef.current) {
+      while (modelGroupRef.current.children.length > 0) {
+        modelGroupRef.current.remove(modelGroupRef.current.children[0]);
       }
-    });
-  };
+      buildObjectsIntoGroup(modelGroupRef.current, currentScene.objects || []);
+    }
+
+    if (mindarAnchorGroupRef.current) {
+      while (mindarAnchorGroupRef.current.children.length > 0) {
+        mindarAnchorGroupRef.current.remove(mindarAnchorGroupRef.current.children[0]);
+      }
+      buildObjectsIntoGroup(mindarAnchorGroupRef.current, currentScene.objects || []);
+    }
+  }, [currentSceneIndex, project, viewerMode, buildObjectsIntoGroup]);
 
   // Start MindAR Image Tracking Engine
   const startMindARTracking = async () => {
@@ -615,6 +637,7 @@ export default function PublicViewerPage() {
       // Create Anchor 0
       const anchor = mindarThree.addAnchor(0);
       const contentGroup = new THREE.Group();
+      mindarAnchorGroupRef.current = contentGroup;
 
       const isVertical = project?.marker?.orientation === 'VERTICAL';
       if (!isVertical) {
@@ -623,7 +646,8 @@ export default function PublicViewerPage() {
       }
 
       // Populate 3D scene objects onto the anchor
-      const sceneObjects = project.scenes?.[0]?.objects || [];
+      const activeScene = project.scenes?.[currentSceneIndex] || project.scenes?.[0];
+      const sceneObjects = activeScene?.objects || [];
       buildObjectsIntoGroup(contentGroup, sceneObjects);
 
       anchor.group.add(contentGroup);
@@ -638,7 +662,38 @@ export default function PublicViewerPage() {
 
       await mindarThree.start();
 
+      const mindarClock = new THREE.Clock();
       renderer.setAnimationLoop(() => {
+        const time = mindarClock.getElapsedTime();
+        if (mindarAnchorGroupRef.current) {
+          mindarAnchorGroupRef.current.traverse((child) => {
+            if (child.userData?.animation && child.userData.animation.type !== 'NONE') {
+              const anim = child.userData.animation;
+              const spd = Number(anim.speed) || 1.0;
+              const bp = child.userData.basePos;
+              const br = child.userData.baseRot;
+              const bs = child.userData.baseScale;
+
+              if (anim.type === 'SPIN' && br) {
+                child.rotation.y = br.y + time * spd * 2;
+              } else if (anim.type === 'BOUNCE' && bp) {
+                child.position.y = bp.y + Math.abs(Math.sin(time * spd * 3)) * 0.35;
+              } else if (anim.type === 'PULSE' && bs) {
+                const factor = 1 + Math.sin(time * spd * 4) * 0.15;
+                child.scale.set(bs.x * factor, bs.y * factor, bs.z * factor);
+              }
+            }
+
+            if (child.userData?.isGif && child.userData.gifImg?.complete) {
+              const { gifImg, gifCanvas, gifCtx, gifTexture } = child.userData;
+              if (gifCtx && gifImg.naturalWidth > 0) {
+                gifCtx.clearRect(0, 0, gifCanvas.width, gifCanvas.height);
+                gifCtx.drawImage(gifImg, 0, 0, gifCanvas.width, gifCanvas.height);
+                gifTexture.needsUpdate = true;
+              }
+            }
+          });
+        }
         renderer.render(scene, camera);
       });
 
@@ -1196,6 +1251,92 @@ export default function PublicViewerPage() {
           </button>
         </div>
       </div>
+
+      {/* Floating Multi-Slide Navigation */}
+      {project.scenes && project.scenes.length > 1 && (
+        <div style={{
+          position: 'absolute',
+          bottom: 'calc(max(1.25rem, env(safe-area-inset-bottom, 1.25rem)) + 62px)',
+          left: '50%',
+          transform: 'translateX(-50%)',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '0.4rem',
+          background: 'rgba(10, 12, 20, 0.88)',
+          backdropFilter: 'blur(16px)',
+          border: '1px solid var(--border-subtle)',
+          borderRadius: '9999px',
+          padding: '0.35rem 0.65rem',
+          zIndex: 20,
+          boxShadow: '0 8px 32px rgba(0, 0, 0, 0.45)',
+          maxWidth: '92vw'
+        }}>
+          <button
+            onClick={() => setCurrentSceneIndex((prev) => Math.max(0, prev - 1))}
+            disabled={currentSceneIndex === 0}
+            style={{
+              background: 'transparent',
+              border: 'none',
+              color: currentSceneIndex === 0 ? 'rgba(255,255,255,0.25)' : '#ffffff',
+              cursor: currentSceneIndex === 0 ? 'not-allowed' : 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              padding: '0.25rem'
+            }}
+            title="Slide Sebelumnya"
+          >
+            <ChevronLeft size={18} />
+          </button>
+
+          {/* Slide pills / indicator */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', overflowX: 'auto', maxWidth: '70vw' }}>
+            {project.scenes.map((s: any, idx: number) => (
+              <button
+                key={s.id || idx}
+                onClick={() => setCurrentSceneIndex(idx)}
+                style={{
+                  height: '24px',
+                  padding: '0 0.55rem',
+                  borderRadius: '9999px',
+                  border: 'none',
+                  fontSize: '0.75rem',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  background: currentSceneIndex === idx ? 'var(--primary)' : 'rgba(255,255,255,0.1)',
+                  color: currentSceneIndex === idx ? '#ffffff' : 'rgba(255,255,255,0.7)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.25rem',
+                  transition: 'all 0.2s',
+                  whiteSpace: 'nowrap'
+                }}
+              >
+                <span>{idx + 1}</span>
+                <span className="hide-on-mobile" style={{ maxWidth: '90px', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {s.name || `Slide ${idx + 1}`}
+                </span>
+              </button>
+            ))}
+          </div>
+
+          <button
+            onClick={() => setCurrentSceneIndex((prev) => Math.min(project.scenes.length - 1, prev + 1))}
+            disabled={currentSceneIndex === project.scenes.length - 1}
+            style={{
+              background: 'transparent',
+              border: 'none',
+              color: currentSceneIndex === project.scenes.length - 1 ? 'rgba(255,255,255,0.25)' : '#ffffff',
+              cursor: currentSceneIndex === project.scenes.length - 1 ? 'not-allowed' : 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              padding: '0.25rem'
+            }}
+            title="Slide Berikutnya"
+          >
+            <ChevronRight size={18} />
+          </button>
+        </div>
+      )}
 
       {/* Floating Bottom Controls */}
       <div style={{

@@ -27,10 +27,26 @@ import {
   Sparkles,
   Search,
   QrCode,
-  Printer
+  Printer,
+  Plus,
+  ChevronLeft,
+  ChevronRight,
+  Volume2,
+  Video,
+  Layers,
+  MousePointerClick,
+  Play
 } from 'lucide-react';
 import QRCode from 'qrcode';
 import Editor3DCanvas, { EditorObject } from '@/components/3d/Editor3DCanvas';
+
+export interface EditorScene {
+  id: string;
+  name: string;
+  order: number;
+  backgroundColor: string;
+  objects: EditorObject[];
+}
 
 export default function DefaultEditorPage() {
   const params = useParams();
@@ -42,7 +58,8 @@ export default function DefaultEditorPage() {
   const [assets, setAssets] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Active scene & objects
+  // Multi-Scene (Slides) & Active Scene
+  const [scenes, setScenes] = useState<EditorScene[]>([]);
   const [activeSceneIndex, setActiveSceneIndex] = useState(0);
   const [objects, setObjects] = useState<EditorObject[]>([]);
   const [selectedObjectId, setSelectedObjectId] = useState<string | null>(null);
@@ -59,7 +76,7 @@ export default function DefaultEditorPage() {
 
   // Modals & Tabs
   const [showAddAssetModal, setShowAddAssetModal] = useState(false);
-  const [assetModalTab, setAssetModalTab] = useState<'ALL' | 'MODEL_3D' | 'IMAGE' | 'GIF'>('ALL');
+  const [assetModalTab, setAssetModalTab] = useState<'ALL' | 'MODEL_3D' | 'IMAGE' | 'GIF' | 'VIDEO' | 'AUDIO'>('ALL');
   const [assetSearch, setAssetSearch] = useState('');
   const [isUploadingDirect, setIsUploadingDirect] = useState(false);
 
@@ -73,9 +90,11 @@ export default function DefaultEditorPage() {
   const photoInputRef = useRef<HTMLInputElement>(null);
   const gifInputRef = useRef<HTMLInputElement>(null);
   const model3dInputRef = useRef<HTMLInputElement>(null);
+  const videoInputRef = useRef<HTMLInputElement>(null);
+  const audioInputRef = useRef<HTMLInputElement>(null);
   const markerInputRef = useRef<HTMLInputElement>(null);
 
-  // Load project
+  // Load project & all scenes
   useEffect(() => {
     async function init() {
       try {
@@ -101,10 +120,13 @@ export default function DefaultEditorPage() {
             setSelectedMarkerId(loadedMarkers[0].id);
           }
 
-          const scene = projData.project.scenes?.[0];
-          if (scene) {
-            setBackgroundColor(scene.backgroundColor || '#0f111a');
-            const parsedObjs: EditorObject[] = (scene.objects || []).map((o: any) => ({
+          const rawScenes = projData.project.scenes || [];
+          const parsedScenes: EditorScene[] = rawScenes.map((sc: any, idx: number) => ({
+            id: sc.id || `temp_scene_${idx}`,
+            name: sc.name || `Slide ${idx + 1}`,
+            order: sc.order ?? idx,
+            backgroundColor: sc.backgroundColor || '#0f111a',
+            objects: (sc.objects || []).map((o: any) => ({
               id: o.id,
               name: o.name,
               type: o.type,
@@ -112,13 +134,27 @@ export default function DefaultEditorPage() {
               asset: o.asset,
               transform: typeof o.transform === 'string' ? JSON.parse(o.transform) : o.transform,
               properties: typeof o.properties === 'string' ? JSON.parse(o.properties) : o.properties
-            }));
-            setObjects(parsedObjs);
-            setHistory([parsedObjs]);
-            setHistoryIndex(0);
-            if (parsedObjs.length > 0) {
-              setSelectedObjectId(parsedObjs[0].id);
-            }
+            }))
+          }));
+
+          if (parsedScenes.length === 0) {
+            parsedScenes.push({
+              id: `temp_scene_0`,
+              name: 'Slide 1',
+              order: 0,
+              backgroundColor: '#0f111a',
+              objects: []
+            });
+          }
+
+          setScenes(parsedScenes);
+          setActiveSceneIndex(0);
+          setBackgroundColor(parsedScenes[0].backgroundColor || '#0f111a');
+          setObjects(parsedScenes[0].objects);
+          setHistory([parsedScenes[0].objects]);
+          setHistoryIndex(0);
+          if (parsedScenes[0].objects.length > 0) {
+            setSelectedObjectId(parsedScenes[0].objects[0].id);
           }
         }
 
@@ -144,41 +180,44 @@ export default function DefaultEditorPage() {
     setHistoryIndex(updatedHistory.length - 1);
   };
 
-  // Debounced auto-save to database
+  // Debounced auto-save to database sending ALL scenes
   const triggerAutoSave = useCallback(
-    (newObjects: EditorObject[], newBg: string) => {
+    (currentScenesList?: EditorScene[], currentObjs?: EditorObject[], currentBg?: string) => {
       setSaveStatus('unsaved');
       if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
 
       autoSaveTimerRef.current = setTimeout(async () => {
         setSaveStatus('saving');
         try {
-          const currentScene = project?.scenes?.[activeSceneIndex] || {
-            name: 'Scene 1',
-            order: 0
-          };
+          const listToProcess = currentScenesList || scenes;
+          const objsToUse = currentObjs || objects;
+          const bgToUse = currentBg || backgroundColor;
 
-          const scenePayload = {
-            id: currentScene.id,
-            name: currentScene.name || 'Scene 1',
-            order: currentScene.order || 0,
-            backgroundColor: newBg,
-            objects: newObjects.map((o) => ({
-              id: o.id.startsWith('temp_') ? undefined : o.id,
-              name: o.name,
-              type: o.type,
-              assetId: o.assetId || null,
-              transform: o.transform,
-              properties: o.properties
-            }))
-          };
+          const scenesPayload = listToProcess.map((sc, idx) => {
+            const isCurrent = idx === activeSceneIndex;
+            return {
+              id: sc.id?.startsWith('temp_') ? undefined : sc.id,
+              name: sc.name || `Slide ${idx + 1}`,
+              order: idx,
+              backgroundColor: isCurrent ? bgToUse : sc.backgroundColor,
+              objects: (isCurrent ? objsToUse : sc.objects).map((o) => ({
+                id: o.id?.startsWith('temp_') ? undefined : o.id,
+                name: o.name,
+                type: o.type,
+                assetId: o.assetId || null,
+                transform: o.transform,
+                properties: o.properties
+              }))
+            };
+          });
 
           await fetch(`/api/projects/${id}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               title: project?.title,
-              scenes: [scenePayload]
+              status: project?.status,
+              scenes: scenesPayload
             })
           });
 
@@ -187,10 +226,131 @@ export default function DefaultEditorPage() {
           console.error('Auto-save error:', e);
           setSaveStatus('unsaved');
         }
-      }, 1200);
+      }, 1000);
     },
-    [id, project, activeSceneIndex]
+    [id, project, scenes, activeSceneIndex, objects, backgroundColor]
   );
+
+  // Scene Switching & Management
+  const handleSwitchScene = (newIndex: number) => {
+    if (newIndex < 0 || newIndex >= scenes.length || newIndex === activeSceneIndex) return;
+
+    // Snapshot current active scene before switching
+    const updatedScenes = scenes.map((sc, idx) =>
+      idx === activeSceneIndex
+        ? { ...sc, backgroundColor, objects }
+        : sc
+    );
+
+    const targetScene = updatedScenes[newIndex];
+    setScenes(updatedScenes);
+    setActiveSceneIndex(newIndex);
+    setBackgroundColor(targetScene.backgroundColor);
+    setObjects(targetScene.objects);
+    setSelectedObjectId(targetScene.objects[0]?.id || null);
+    setHistory([targetScene.objects]);
+    setHistoryIndex(0);
+    triggerAutoSave(updatedScenes, targetScene.objects, targetScene.backgroundColor);
+  };
+
+  const handleAddScene = () => {
+    const updatedScenes = scenes.map((sc, idx) =>
+      idx === activeSceneIndex
+        ? { ...sc, backgroundColor, objects }
+        : sc
+    );
+
+    const newIndex = updatedScenes.length;
+    const newScene: EditorScene = {
+      id: `temp_scene_${Date.now()}`,
+      name: `Slide ${newIndex + 1}`,
+      order: newIndex,
+      backgroundColor: '#0f111a',
+      objects: [
+        {
+          id: `temp_cube_${Date.now()}`,
+          name: 'Kubus Baru',
+          type: 'GEOMETRY',
+          transform: { position: [0, 0.5, 0], rotation: [0, 0, 0], scale: [1, 1, 1] },
+          properties: { geometry: 'box', color: '#6366f1', roughness: 0.3, metalness: 0.7 }
+        },
+        {
+          id: `temp_light_${Date.now() + 1}`,
+          name: 'Pencahayaan',
+          type: 'LIGHT',
+          transform: { position: [2, 4, 3], rotation: [0, 0, 0], scale: [1, 1, 1] },
+          properties: { lightType: 'directional', color: '#ffffff', intensity: 1.5 }
+        }
+      ]
+    };
+
+    const nextScenes = [...updatedScenes, newScene];
+    setScenes(nextScenes);
+    setActiveSceneIndex(newIndex);
+    setBackgroundColor(newScene.backgroundColor);
+    setObjects(newScene.objects);
+    setSelectedObjectId(newScene.objects[0].id);
+    setHistory([newScene.objects]);
+    setHistoryIndex(0);
+    triggerAutoSave(nextScenes, newScene.objects, newScene.backgroundColor);
+  };
+
+  const handleDeleteScene = (indexToDelete: number) => {
+    if (scenes.length <= 1) {
+      alert('Proyek minimal harus memiliki 1 slide scene.');
+      return;
+    }
+    const targetScene = scenes[indexToDelete];
+    if (!confirm(`Hapus ${targetScene.name}?`)) return;
+
+    const currentScenes = scenes.map((sc, idx) =>
+      idx === activeSceneIndex
+        ? { ...sc, backgroundColor, objects }
+        : sc
+    );
+
+    const filtered = currentScenes.filter((_, idx) => idx !== indexToDelete);
+    const reordered = filtered.map((sc, idx) => ({ ...sc, order: idx }));
+    const nextIndex = Math.min(activeSceneIndex >= indexToDelete ? Math.max(0, activeSceneIndex - 1) : activeSceneIndex, reordered.length - 1);
+
+    setScenes(reordered);
+    setActiveSceneIndex(nextIndex);
+    setBackgroundColor(reordered[nextIndex].backgroundColor);
+    setObjects(reordered[nextIndex].objects);
+    setSelectedObjectId(reordered[nextIndex].objects[0]?.id || null);
+    setHistory([reordered[nextIndex].objects]);
+    setHistoryIndex(0);
+    triggerAutoSave(reordered, reordered[nextIndex].objects, reordered[nextIndex].backgroundColor);
+  };
+
+  const handleMoveScene = (fromIndex: number, toIndex: number) => {
+    if (toIndex < 0 || toIndex >= scenes.length) return;
+
+    const currentScenes = scenes.map((sc, idx) =>
+      idx === activeSceneIndex
+        ? { ...sc, backgroundColor, objects }
+        : sc
+    );
+
+    const nextList = [...currentScenes];
+    const [moved] = nextList.splice(fromIndex, 1);
+    nextList.splice(toIndex, 0, moved);
+    const reordered = nextList.map((sc, idx) => ({ ...sc, order: idx }));
+
+    setScenes(reordered);
+    setActiveSceneIndex(toIndex);
+    triggerAutoSave(reordered);
+  };
+
+  const handleRenameCurrentScene = (newName: string) => {
+    const updatedScenes = scenes.map((sc, idx) =>
+      idx === activeSceneIndex
+        ? { ...sc, name: newName }
+        : sc
+    );
+    setScenes(updatedScenes);
+    triggerAutoSave(updatedScenes);
+  };
 
   // Update object transform from 3D gizmo
   const handleUpdateTransform = (
@@ -203,7 +363,7 @@ export default function DefaultEditorPage() {
   ) => {
     setObjects((prev) => {
       const updated = prev.map((obj) => (obj.id === objId ? { ...obj, transform } : obj));
-      triggerAutoSave(updated, backgroundColor);
+      triggerAutoSave(undefined, updated, backgroundColor);
       return updated;
     });
   };
@@ -212,22 +372,23 @@ export default function DefaultEditorPage() {
   const handleAddObject = (type: string, geometry?: string, asset?: any) => {
     const isImageOrGif = type === 'IMAGE' || asset?.type === 'IMAGE' || asset?.type === 'GIF';
     const isGif = asset?.fileUrl?.toLowerCase().endsWith('.gif') || asset?.type === 'GIF';
+    const isVideo = type === 'VIDEO' || asset?.type === 'VIDEO';
+    const isAudio = type === 'AUDIO' || asset?.type === 'AUDIO';
+
+    let defaultName = 'Objek 3D';
+    if (type === 'GEOMETRY') defaultName = `Objek ${geometry || 'Kubus'}`;
+    else if (type === 'TEXT_3D') defaultName = 'Teks 3D Baru';
+    else if (type === 'LIGHT') defaultName = 'Lampu Sorot';
+    else if (isVideo) defaultName = asset?.name || 'Video 3D';
+    else if (isAudio) defaultName = asset?.name || 'Audio 3D';
+    else if (isGif) defaultName = asset?.name || 'Animasi GIF';
+    else if (isImageOrGif) defaultName = asset?.name || 'Foto / Gambar';
+    else defaultName = asset?.name || 'Model 3D';
 
     const newObj: EditorObject = {
       id: `temp_${Date.now()}`,
-      name:
-        type === 'GEOMETRY'
-          ? `Objek ${geometry || 'Kubus'}`
-          : type === 'TEXT_3D'
-          ? 'Teks 3D Baru'
-          : type === 'LIGHT'
-          ? 'Lampu Sorot'
-          : isGif
-          ? (asset?.name || 'Animasi GIF')
-          : isImageOrGif
-          ? (asset?.name || 'Foto / Gambar')
-          : asset?.name || 'Model 3D',
-      type: isImageOrGif ? 'IMAGE' : type === '3D_MODEL' ? '3D_MODEL' : type,
+      name: defaultName,
+      type: isVideo ? 'VIDEO' : isAudio ? 'AUDIO' : isImageOrGif ? 'IMAGE' : type === '3D_MODEL' ? '3D_MODEL' : type,
       assetId: asset?.id || null,
       asset: asset || null,
       transform: {
@@ -243,7 +404,10 @@ export default function DefaultEditorPage() {
         wireframe: false,
         text: type === 'TEXT_3D' ? 'KONTEN AR BM3' : undefined,
         width: 2,
-        height: 2
+        height: 2,
+        animation: 'NONE',
+        animSpeed: 1,
+        trigger: { action: 'NONE' }
       }
     };
 
@@ -251,11 +415,11 @@ export default function DefaultEditorPage() {
     setObjects(updated);
     setSelectedObjectId(newObj.id);
     pushHistory(updated);
-    triggerAutoSave(updated, backgroundColor);
+    triggerAutoSave(undefined, updated, backgroundColor);
   };
 
   // Direct 1-Click Upload and Add to 3D Scene
-  const handleDirectUploadAndAdd = async (file: File, expectedType: 'IMAGE' | 'GIF' | 'MODEL_3D') => {
+  const handleDirectUploadAndAdd = async (file: File, expectedType: 'IMAGE' | 'GIF' | 'MODEL_3D' | 'VIDEO' | 'AUDIO') => {
     setIsUploadingDirect(true);
     const formData = new FormData();
     formData.append('file', file);
@@ -271,6 +435,10 @@ export default function DefaultEditorPage() {
         setAssets((prev) => [data.asset, ...prev]);
         if (expectedType === 'MODEL_3D') {
           handleAddObject('3D_MODEL', undefined, data.asset);
+        } else if (expectedType === 'VIDEO') {
+          handleAddObject('VIDEO', undefined, data.asset);
+        } else if (expectedType === 'AUDIO') {
+          handleAddObject('AUDIO', undefined, data.asset);
         } else {
           handleAddObject('IMAGE', undefined, data.asset);
         }
@@ -292,7 +460,7 @@ export default function DefaultEditorPage() {
       setSelectedObjectId(updated[0]?.id || null);
     }
     pushHistory(updated);
-    triggerAutoSave(updated, backgroundColor);
+    triggerAutoSave(undefined, updated, backgroundColor);
   };
 
   const handleDuplicateObject = (objId: string) => {
@@ -317,7 +485,7 @@ export default function DefaultEditorPage() {
     setObjects(updated);
     setSelectedObjectId(cloned.id);
     pushHistory(updated);
-    triggerAutoSave(updated, backgroundColor);
+    triggerAutoSave(undefined, updated, backgroundColor);
   };
 
   // Undo / Redo
@@ -326,7 +494,7 @@ export default function DefaultEditorPage() {
       const newIdx = historyIndex - 1;
       setHistoryIndex(newIdx);
       setObjects(history[newIdx]);
-      triggerAutoSave(history[newIdx], backgroundColor);
+      triggerAutoSave(undefined, history[newIdx], backgroundColor);
     }
   };
 
@@ -335,7 +503,7 @@ export default function DefaultEditorPage() {
       const newIdx = historyIndex + 1;
       setHistoryIndex(newIdx);
       setObjects(history[newIdx]);
-      triggerAutoSave(history[newIdx], backgroundColor);
+      triggerAutoSave(undefined, history[newIdx], backgroundColor);
     }
   };
 
@@ -437,11 +605,15 @@ export default function DefaultEditorPage() {
     const isGif = asset.fileUrl?.toLowerCase().endsWith('.gif') || asset.type === 'GIF' || asset.mimeType === 'image/gif';
     const isImage = (asset.type === 'IMAGE' || asset.mimeType?.startsWith('image/')) && !isGif;
     const is3D = asset.type === 'MODEL_3D';
+    const isVideo = asset.type === 'VIDEO' || asset.fileUrl?.toLowerCase().endsWith('.mp4');
+    const isAudio = asset.type === 'AUDIO' || asset.fileUrl?.toLowerCase().endsWith('.mp3');
 
     let matchesTab = true;
     if (assetModalTab === 'MODEL_3D') matchesTab = is3D;
     else if (assetModalTab === 'IMAGE') matchesTab = isImage;
     else if (assetModalTab === 'GIF') matchesTab = isGif;
+    else if (assetModalTab === 'VIDEO') matchesTab = isVideo;
+    else if (assetModalTab === 'AUDIO') matchesTab = isAudio;
 
     const matchesSearch = asset.name.toLowerCase().includes(assetSearch.toLowerCase());
     return matchesTab && matchesSearch;
@@ -483,6 +655,28 @@ export default function DefaultEditorPage() {
         }}
         style={{ display: 'none' }}
       />
+      <input
+        type="file"
+        ref={videoInputRef}
+        accept="video/mp4,video/webm"
+        onChange={(e) => {
+          if (e.target.files && e.target.files[0]) {
+            handleDirectUploadAndAdd(e.target.files[0], 'VIDEO');
+          }
+        }}
+        style={{ display: 'none' }}
+      />
+      <input
+        type="file"
+        ref={audioInputRef}
+        accept="audio/mp3,audio/wav,audio/ogg"
+        onChange={(e) => {
+          if (e.target.files && e.target.files[0]) {
+            handleDirectUploadAndAdd(e.target.files[0], 'AUDIO');
+          }
+        }}
+        style={{ display: 'none' }}
+      />
 
       {/* Top Toolbar */}
       <header style={{
@@ -512,7 +706,7 @@ export default function DefaultEditorPage() {
                 value={project?.title || ''}
                 onChange={(e) => {
                   setProject({ ...project, title: e.target.value });
-                  triggerAutoSave(objects, backgroundColor);
+                  triggerAutoSave(undefined, objects, backgroundColor);
                 }}
                 style={{
                   background: 'transparent',
@@ -610,6 +804,117 @@ export default function DefaultEditorPage() {
         </div>
       </header>
 
+      {/* Slide / Scene Manager Bar */}
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        padding: '0.45rem 1rem',
+        background: 'rgba(12, 14, 24, 0.98)',
+        borderBottom: '1px solid var(--border-subtle)',
+        overflowX: 'auto',
+        gap: '0.75rem',
+        zIndex: 40
+      }}>
+        {/* Left: Slide selector tabs */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexShrink: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', marginRight: '0.5rem', textTransform: 'uppercase' }}>
+            <Layers size={14} color="var(--primary-light)" /> Slides:
+          </div>
+
+          {scenes.map((sc, idx) => {
+            const isActive = idx === activeSceneIndex;
+            return (
+              <button
+                key={sc.id || idx}
+                onClick={() => handleSwitchScene(idx)}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.4rem',
+                  padding: '0.35rem 0.75rem',
+                  borderRadius: 'var(--radius-sm)',
+                  fontSize: '0.75rem',
+                  fontWeight: isActive ? 700 : 500,
+                  background: isActive ? 'rgba(99, 102, 241, 0.25)' : 'rgba(255, 255, 255, 0.04)',
+                  color: isActive ? '#ffffff' : 'var(--text-secondary)',
+                  border: isActive ? '1px solid var(--primary)' : '1px solid var(--border-subtle)',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s',
+                  whiteSpace: 'nowrap'
+                }}
+              >
+                <span>Slide {idx + 1}: {sc.name}</span>
+              </button>
+            );
+          })}
+
+          <button
+            onClick={handleAddScene}
+            className="btn btn-secondary"
+            style={{ fontSize: '0.75rem', padding: '0.35rem 0.65rem', gap: '0.3rem', whiteSpace: 'nowrap' }}
+            title="Tambah Slide Baru"
+          >
+            <Plus size={13} /> Tambah Slide
+          </button>
+        </div>
+
+        {/* Right: Active Slide Controls */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexShrink: 0 }}>
+          {/* Slide Rename Input */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+            <span style={{ fontSize: '0.6875rem', color: 'var(--text-muted)' }}>Nama:</span>
+            <input
+              type="text"
+              value={scenes[activeSceneIndex]?.name || ''}
+              onChange={(e) => handleRenameCurrentScene(e.target.value)}
+              style={{
+                fontSize: '0.75rem',
+                padding: '0.25rem 0.5rem',
+                borderRadius: 'var(--radius-sm)',
+                background: 'rgba(255, 255, 255, 0.05)',
+                border: '1px solid var(--border-subtle)',
+                color: 'var(--text-main)',
+                width: '130px'
+              }}
+            />
+          </div>
+
+          {/* Move Slide Left / Right */}
+          <div style={{ display: 'flex', background: 'rgba(255, 255, 255, 0.04)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-subtle)' }}>
+            <button
+              onClick={() => handleMoveScene(activeSceneIndex, activeSceneIndex - 1)}
+              disabled={activeSceneIndex === 0}
+              className="btn-icon"
+              style={{ padding: '0.25rem', opacity: activeSceneIndex === 0 ? 0.3 : 1 }}
+              title="Geser Slide ke Kiri"
+            >
+              <ChevronLeft size={14} />
+            </button>
+            <button
+              onClick={() => handleMoveScene(activeSceneIndex, activeSceneIndex + 1)}
+              disabled={activeSceneIndex === scenes.length - 1}
+              className="btn-icon"
+              style={{ padding: '0.25rem', opacity: activeSceneIndex === scenes.length - 1 ? 0.3 : 1 }}
+              title="Geser Slide ke Kanan"
+            >
+              <ChevronRight size={14} />
+            </button>
+          </div>
+
+          {/* Delete Current Slide */}
+          <button
+            onClick={() => handleDeleteScene(activeSceneIndex)}
+            disabled={scenes.length <= 1}
+            className="btn-icon"
+            style={{ padding: '0.3rem', color: scenes.length <= 1 ? 'var(--text-muted)' : '#f87171', opacity: scenes.length <= 1 ? 0.3 : 1 }}
+            title="Hapus Slide Ini"
+          >
+            <Trash2 size={14} />
+          </button>
+        </div>
+      </div>
+
       {/* Main Workspace (3 columns: Left Hierarchy, Center Canvas, Right Inspector) */}
       <div className="studio-workspace">
         {/* Left Sidebar: Scene & Hierarchy */}
@@ -653,6 +958,38 @@ export default function DefaultEditorPage() {
                 }}
               >
                 <Film size={15} /> Import GIF Animasi
+              </button>
+
+              {/* Import Video MP4 */}
+              <button
+                onClick={() => videoInputRef.current?.click()}
+                disabled={isUploadingDirect}
+                className="btn btn-accent"
+                style={{
+                  fontSize: '0.75rem',
+                  padding: '0.5rem 0.75rem',
+                  justifyContent: 'flex-start',
+                  background: 'linear-gradient(135deg, #0284c7 0%, #06b6d4 100%)',
+                  boxShadow: '0 2px 10px rgba(6, 182, 212, 0.3)'
+                }}
+              >
+                <Video size={15} /> Import Video (MP4)
+              </button>
+
+              {/* Import Audio MP3 */}
+              <button
+                onClick={() => audioInputRef.current?.click()}
+                disabled={isUploadingDirect}
+                className="btn btn-accent"
+                style={{
+                  fontSize: '0.75rem',
+                  padding: '0.5rem 0.75rem',
+                  justifyContent: 'flex-start',
+                  background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                  boxShadow: '0 2px 10px rgba(16, 185, 129, 0.3)'
+                }}
+              >
+                <Volume2 size={15} /> Import Audio (MP3)
               </button>
 
               {/* Import Model 3D GLB */}
@@ -867,7 +1204,7 @@ export default function DefaultEditorPage() {
                     const newName = e.target.value;
                     setObjects((prev) => {
                       const updated = prev.map((o) => (o.id === selectedObject.id ? { ...o, name: newName } : o));
-                      triggerAutoSave(updated, backgroundColor);
+                      triggerAutoSave(undefined, updated, backgroundColor);
                       return updated;
                     });
                   }}
@@ -903,7 +1240,7 @@ export default function DefaultEditorPage() {
                             ? { ...o, properties: { ...o.properties, text: val } }
                             : o
                         );
-                        triggerAutoSave(updated, backgroundColor);
+                        triggerAutoSave(undefined, updated, backgroundColor);
                         return updated;
                       });
                     }}
@@ -975,7 +1312,7 @@ export default function DefaultEditorPage() {
                                 ? { ...o, properties: { ...o.properties, color: c } }
                                 : o
                             );
-                            triggerAutoSave(updated, backgroundColor);
+                            triggerAutoSave(undefined, updated, backgroundColor);
                             return updated;
                           });
                         }}
@@ -1005,7 +1342,7 @@ export default function DefaultEditorPage() {
                               ? { ...o, properties: { ...o.properties, wireframe: checked } }
                               : o
                         );
-                        triggerAutoSave(updated, backgroundColor);
+                        triggerAutoSave(undefined, updated, backgroundColor);
                         return updated;
                       });
                     }}
@@ -1014,6 +1351,211 @@ export default function DefaultEditorPage() {
                   </div>
                 </div>
               )}
+
+              {/* Animasi Kontinu (Spin, Bounce, Pulse) */}
+              <div style={{ marginBottom: '1.25rem', padding: '0.75rem', background: 'rgba(255,255,255,0.02)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-subtle)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.75rem', fontWeight: 700, color: 'var(--accent-light)', marginBottom: '0.5rem' }}>
+                  <Play size={13} /> Animasi 3D Kontinu
+                </div>
+                <div className="form-group" style={{ marginBottom: '0.65rem' }}>
+                  <label className="form-label">Efek Gerakan</label>
+                  <select
+                    value={selectedObject.properties.animation || 'NONE'}
+                    onChange={(e) => {
+                      const anim = e.target.value as any;
+                      setObjects((prev) => {
+                        const updated = prev.map((o) =>
+                          o.id === selectedObject.id
+                            ? { ...o, properties: { ...o.properties, animation: anim } }
+                            : o
+                        );
+                        triggerAutoSave(undefined, updated, backgroundColor);
+                        return updated;
+                      });
+                    }}
+                    className="form-input"
+                    style={{ fontSize: '0.75rem' }}
+                  >
+                    <option value="NONE">Tidak Ada (Statis)</option>
+                    <option value="SPIN">🔄 Putar Terus Sumbu Y (Spin)</option>
+                    <option value="BOUNCE">✨ Melayang Halus (Bounce)</option>
+                    <option value="PULSE">💓 Berdenyut Skala (Pulse)</option>
+                  </select>
+                </div>
+
+                {selectedObject.properties.animation && selectedObject.properties.animation !== 'NONE' && (
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.6875rem', color: 'var(--text-secondary)', marginBottom: '0.25rem' }}>
+                      <span>Kecepatan Animasi</span>
+                      <span>{(selectedObject.properties.animSpeed || 1).toFixed(1)}x</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="0.5"
+                      max="3.0"
+                      step="0.1"
+                      value={selectedObject.properties.animSpeed || 1}
+                      onChange={(e) => {
+                        const spd = parseFloat(e.target.value);
+                        setObjects((prev) => {
+                          const updated = prev.map((o) =>
+                            o.id === selectedObject.id
+                              ? { ...o, properties: { ...o.properties, animSpeed: spd } }
+                              : o
+                          );
+                          triggerAutoSave(undefined, updated, backgroundColor);
+                          return updated;
+                        });
+                      }}
+                      style={{ width: '100%', accentColor: 'var(--accent)' }}
+                    />
+                  </div>
+                )}
+              </div>
+
+              {/* Interaksi & Trigger Klik (Open URL, Switch Scene, Toggle Audio) */}
+              <div style={{ marginBottom: '1.25rem', padding: '0.75rem', background: 'rgba(255,255,255,0.02)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-subtle)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.75rem', fontWeight: 700, color: '#34d399', marginBottom: '0.5rem' }}>
+                  <MousePointerClick size={13} /> Aksi Saat Objek Diklik/Disentuh
+                </div>
+                <div className="form-group" style={{ marginBottom: '0.65rem' }}>
+                  <label className="form-label">Tindakan Trigger</label>
+                  <select
+                    value={selectedObject.properties.trigger?.action || 'NONE'}
+                    onChange={(e) => {
+                      const act = e.target.value as any;
+                      setObjects((prev) => {
+                        const updated = prev.map((o) =>
+                          o.id === selectedObject.id
+                            ? {
+                                ...o,
+                                properties: {
+                                  ...o.properties,
+                                  trigger: {
+                                    ...o.properties.trigger,
+                                    action: act
+                                  }
+                                }
+                              }
+                            : o
+                        );
+                        triggerAutoSave(undefined, updated, backgroundColor);
+                        return updated;
+                      });
+                    }}
+                    className="form-input"
+                    style={{ fontSize: '0.75rem' }}
+                  >
+                    <option value="NONE">Tidak Ada Aksi</option>
+                    <option value="OPEN_URL">🔗 Buka Tautan Website (URL)</option>
+                    <option value="SWITCH_SCENE">⏭️ Pindah ke Slide Lain</option>
+                    <option value="TOGGLE_AUDIO">🔊 Putar / Hentikan Suara</option>
+                  </select>
+                </div>
+
+                {selectedObject.properties.trigger?.action === 'OPEN_URL' && (
+                  <div className="form-group" style={{ marginBottom: 0 }}>
+                    <label className="form-label">Alamat URL Tujuan</label>
+                    <input
+                      type="url"
+                      placeholder="https://kantor.bm3.go.id"
+                      value={selectedObject.properties.trigger?.url || ''}
+                      onChange={(e) => {
+                        const link = e.target.value;
+                        setObjects((prev) => {
+                          const updated: EditorObject[] = prev.map((o) =>
+                            o.id === selectedObject.id
+                              ? {
+                                  ...o,
+                                  properties: {
+                                    ...o.properties,
+                                    trigger: { ...o.properties.trigger, action: 'OPEN_URL' as const, url: link }
+                                  }
+                                }
+                              : o
+                          );
+                          triggerAutoSave(undefined, updated, backgroundColor);
+                          return updated;
+                        });
+                      }}
+                      className="form-input"
+                      style={{ fontSize: '0.75rem' }}
+                    />
+                  </div>
+                )}
+
+                {selectedObject.properties.trigger?.action === 'SWITCH_SCENE' && (
+                  <div className="form-group" style={{ marginBottom: 0 }}>
+                    <label className="form-label">Target Slide Tujuan</label>
+                    <select
+                      value={selectedObject.properties.trigger?.targetScene ?? ''}
+                      onChange={(e) => {
+                        const targetIdx = parseInt(e.target.value, 10);
+                        setObjects((prev) => {
+                          const updated: EditorObject[] = prev.map((o) =>
+                            o.id === selectedObject.id
+                              ? {
+                                  ...o,
+                                  properties: {
+                                    ...o.properties,
+                                    trigger: { ...o.properties.trigger, action: 'SWITCH_SCENE' as const, targetScene: targetIdx }
+                                  }
+                                }
+                              : o
+                          );
+                          triggerAutoSave(undefined, updated, backgroundColor);
+                          return updated;
+                        });
+                      }}
+                      className="form-input"
+                      style={{ fontSize: '0.75rem' }}
+                    >
+                      <option value="">Pilih Slide Tujuan...</option>
+                      {scenes.map((sc, i) => (
+                        <option key={sc.id || i} value={i}>
+                          Slide {i + 1}: {sc.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
+                {selectedObject.properties.trigger?.action === 'TOGGLE_AUDIO' && (
+                  <div className="form-group" style={{ marginBottom: 0 }}>
+                    <label className="form-label">Pilih Aset Audio</label>
+                    <select
+                      value={selectedObject.properties.trigger?.audioUrl || ''}
+                      onChange={(e) => {
+                        const aUrl = e.target.value;
+                        setObjects((prev) => {
+                          const updated: EditorObject[] = prev.map((o) =>
+                            o.id === selectedObject.id
+                              ? {
+                                  ...o,
+                                  properties: {
+                                    ...o.properties,
+                                    trigger: { ...o.properties.trigger, action: 'TOGGLE_AUDIO' as const, audioUrl: aUrl }
+                                  }
+                                }
+                              : o
+                          );
+                          triggerAutoSave(undefined, updated, backgroundColor);
+                          return updated;
+                        });
+                      }}
+                      className="form-input"
+                      style={{ fontSize: '0.75rem' }}
+                    >
+                      <option value="">Pilih berkas audio...</option>
+                      {assets.filter((a) => a.type === 'AUDIO' || a.fileUrl.endsWith('.mp3')).map((a) => (
+                        <option key={a.id} value={a.fileUrl}>
+                          {a.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+              </div>
             </div>
           ) : (
             <div>
@@ -1030,7 +1572,7 @@ export default function DefaultEditorPage() {
                     value={backgroundColor}
                     onChange={(e) => {
                       setBackgroundColor(e.target.value);
-                      triggerAutoSave(objects, e.target.value);
+                      triggerAutoSave(undefined, objects, e.target.value);
                     }}
                     style={{ width: '40px', height: '36px', borderRadius: 'var(--radius-sm)', border: 'none', cursor: 'pointer', background: 'transparent' }}
                   />
@@ -1079,12 +1621,14 @@ export default function DefaultEditorPage() {
 
             {/* Filter Tabs & Search */}
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.75rem', marginBottom: '1.25rem', flexWrap: 'wrap' }}>
-              <div style={{ display: 'flex', gap: '0.35rem' }}>
+              <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap' }}>
                 {[
                   { id: 'ALL', label: 'Semua' },
                   { id: 'MODEL_3D', label: '📦 Model 3D' },
                   { id: 'IMAGE', label: '🖼️ Foto' },
-                  { id: 'GIF', label: '🎬 GIF Animasi' }
+                  { id: 'GIF', label: '🎬 GIF' },
+                  { id: 'VIDEO', label: '🎥 Video' },
+                  { id: 'AUDIO', label: '🔊 Audio' }
                 ].map((tab) => (
                   <button
                     key={tab.id}
@@ -1124,11 +1668,21 @@ export default function DefaultEditorPage() {
                 {modalFilteredAssets.map((asset) => {
                   const isGif = asset.fileUrl?.toLowerCase().endsWith('.gif') || asset.type === 'GIF';
                   const isImage = (asset.type === 'IMAGE' || asset.mimeType?.startsWith('image/')) && !isGif;
+                  const isVideo = asset.type === 'VIDEO' || asset.fileUrl?.toLowerCase().endsWith('.mp4');
+                  const isAudio = asset.type === 'AUDIO' || asset.fileUrl?.toLowerCase().endsWith('.mp3');
                   return (
                     <div
                       key={asset.id}
                       onClick={() => {
-                        handleAddObject(asset.type === 'MODEL_3D' ? '3D_MODEL' : 'IMAGE', undefined, asset);
+                        if (asset.type === 'MODEL_3D') {
+                          handleAddObject('3D_MODEL', undefined, asset);
+                        } else if (isVideo) {
+                          handleAddObject('VIDEO', undefined, asset);
+                        } else if (isAudio) {
+                          handleAddObject('AUDIO', undefined, asset);
+                        } else {
+                          handleAddObject('IMAGE', undefined, asset);
+                        }
                         setShowAddAssetModal(false);
                       }}
                       style={{

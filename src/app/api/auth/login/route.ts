@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import bcrypt from 'bcryptjs';
 import prisma from '@/lib/prisma';
 import { createSessionToken, SESSION_COOKIE_NAME } from '@/lib/auth';
+import { checkRateLimit, resetRateLimit } from '@/lib/rate-limit';
 
 export async function POST(request: Request) {
   try {
@@ -14,8 +15,34 @@ export async function POST(request: Request) {
       );
     }
 
+    const cleanEmail = String(email).toLowerCase().trim();
+
+    // Client IP extraction
+    const clientIp =
+      request.headers.get('x-forwarded-for')?.split(',')[0].trim() ||
+      request.headers.get('x-real-ip') ||
+      'local-client';
+
+    // Rate limiting: 5 attempts per minute per IP + email
+    const rateLimitKey = `login:${clientIp}:${cleanEmail}`;
+    const rateCheck = checkRateLimit(rateLimitKey, 5, 60000);
+
+    if (!rateCheck.allowed) {
+      return NextResponse.json(
+        {
+          error: `Terlalu banyak percobaan login gagal. Demi keamanan, silakan coba lagi dalam ${rateCheck.retryAfterSec} detik.`
+        },
+        {
+          status: 429,
+          headers: {
+            'Retry-After': String(rateCheck.retryAfterSec)
+          }
+        }
+      );
+    }
+
     const user = await prisma.user.findUnique({
-      where: { email: email.toLowerCase().trim() }
+      where: { email: cleanEmail }
     });
 
     if (!user) {
@@ -32,6 +59,9 @@ export async function POST(request: Request) {
         { status: 401 }
       );
     }
+
+    // Reset rate limit on successful credentials verification
+    resetRateLimit(rateLimitKey);
 
     const token = createSessionToken({
       userId: user.id,
